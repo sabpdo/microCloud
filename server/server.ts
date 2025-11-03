@@ -1,0 +1,196 @@
+/**
+ * μCloud Toy HTTP Server
+ *
+ * A minimal HTTP server that acts as the origin server for static files.
+ * This server will only be contacted when peer cache misses occur.
+ */
+
+import express, { Request, Response, NextFunction } from 'express';
+import path from 'path';
+import fs from 'fs';
+import { fileURLToPath } from 'url';
+
+// Get __dirname equivalent for ES modules
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+
+const app = express();
+const PORT = process.env.PORT || 3000;
+const STATIC_DIR = path.join(__dirname, '..', 'public');
+const REACT_BUILD_DIR = path.join(__dirname, '..', 'dist');
+
+interface Stats {
+    totalRequests: number;
+    totalBytes: number;
+    requestsByPath: Record<string, number>;
+    startTime: string;
+    peerRequests: number; // Requests served by peers (cache hits)
+    originRequests: number; // Requests to origin server (cache misses)
+    cacheHitRatio: number;
+}
+
+// Statistics tracking
+let stats: Stats = {
+    totalRequests: 0,
+    totalBytes: 0,
+    requestsByPath: {},
+    startTime: new Date().toISOString(),
+    peerRequests: 0,
+    originRequests: 0,
+    cacheHitRatio: 0,
+};
+
+// Ensure directories exist
+if (!fs.existsSync(STATIC_DIR)) {
+    fs.mkdirSync(STATIC_DIR, { recursive: true });
+}
+
+// Middleware
+app.use(express.json());
+
+// Track requests for statistics (must be before static serving)
+app.use((req: Request, res: Response, next: NextFunction) => {
+    stats.totalRequests++;
+    const originalSend = res.send.bind(res);
+    const originalSendFile = res.sendFile.bind(res);
+
+    res.send = function (data?: any) {
+        if (data) {
+            stats.totalBytes += Buffer.byteLength(data);
+        }
+        stats.requestsByPath[req.path] = (stats.requestsByPath[req.path] || 0) + 1;
+        return originalSend(data);
+    };
+
+    res.sendFile = function (
+        filePath: string,
+        optionsOrCallback?: any,
+        callback?: (err: Error) => void
+    ) {
+        stats.requestsByPath[req.path] = (stats.requestsByPath[req.path] || 0) + 1;
+        if (callback) {
+            return originalSendFile(filePath, optionsOrCallback, callback);
+        } else {
+            return originalSendFile(filePath, optionsOrCallback);
+        }
+    } as typeof originalSendFile;
+
+    next();
+});
+
+// Request logging middleware
+app.use((req: Request, res: Response, next: NextFunction) => {
+    const timestamp = new Date().toISOString();
+    console.log(`[${timestamp}] ${req.method} ${req.path} - ${req.ip}`);
+    next();
+});
+
+// CORS headers for browser-based clients (must be before routes)
+app.use((req: Request, res: Response, next: NextFunction) => {
+    res.header('Access-Control-Allow-Origin', '*');
+    res.header('Access-Control-Allow-Methods', 'GET, HEAD, OPTIONS');
+    res.header('Access-Control-Allow-Headers', 'Content-Type');
+    if (req.method === 'OPTIONS') {
+        return res.sendStatus(200);
+    }
+    next();
+});
+
+// API Routes (must be before static file serving)
+// Health check endpoint
+app.get('/health', (req: Request, res: Response) => {
+    res.json({
+        status: 'ok',
+        timestamp: new Date().toISOString(),
+        server: 'μCloud Origin Server',
+    });
+});
+
+// Statistics endpoint for monitoring server load
+app.get('/stats', (req: Request, res: Response) => {
+    // Calculate cache hit ratio
+    const totalCacheableRequests = stats.peerRequests + stats.originRequests;
+    stats.cacheHitRatio =
+        totalCacheableRequests > 0
+            ? (stats.peerRequests / totalCacheableRequests) * 100
+            : 0;
+
+    res.json({
+        ...stats,
+        uptime: Math.floor(
+            (Date.now() - new Date(stats.startTime).getTime()) / 1000
+        ),
+    });
+});
+
+// Endpoint to record a cache hit (when peer serves content)
+app.post('/api/cache-hit', (req: Request, res: Response) => {
+    stats.peerRequests++;
+    res.json({ success: true, stats });
+});
+
+// Endpoint to record a cache miss (when peer requests from origin)
+app.post('/api/cache-miss', (req: Request, res: Response) => {
+    stats.originRequests++;
+    res.json({ success: true, stats });
+});
+
+// Reset stats endpoint (for testing)
+app.post('/stats/reset', (req: Request, res: Response) => {
+    stats = {
+        totalRequests: 0,
+        totalBytes: 0,
+        requestsByPath: {},
+        startTime: new Date().toISOString(),
+        peerRequests: 0,
+        originRequests: 0,
+        cacheHitRatio: 0,
+    };
+    res.json({ message: 'Stats reset', stats });
+});
+
+// Serve React dashboard build if it exists (before public static files)
+if (fs.existsSync(REACT_BUILD_DIR)) {
+    // Serve React app static assets
+    app.use(express.static(REACT_BUILD_DIR));
+
+    // Serve React app for all non-API routes (SPA routing)
+    // This must come AFTER API routes but BEFORE public static files
+    app.get('*', (req: Request, res: Response, next: NextFunction) => {
+        // Skip if it's a file with extension (like .json, .txt from public/)
+        if (req.path.match(/\.[^/]+$/)) {
+            return next();
+        }
+        // Serve React app index.html for all other routes
+        res.sendFile(path.join(REACT_BUILD_DIR, 'index.html'));
+    });
+}
+
+// Serve static files from public directory (fallback for sample files)
+// These are served with explicit paths like /sample.txt, /sample.json
+app.use('/sample.txt', express.static(path.join(STATIC_DIR, 'sample.txt')));
+app.use('/sample.json', express.static(path.join(STATIC_DIR, 'sample.json')));
+app.use('/demo.html', express.static(path.join(STATIC_DIR, 'demo.html')));
+app.use('/style.css', express.static(path.join(STATIC_DIR, 'style.css')));
+
+// Start server
+app.listen(PORT, () => {
+    console.log(`μCloud Origin Server running on http://localhost:${PORT}`);
+    console.log(`Serving static files from: ${STATIC_DIR}`);
+    if (fs.existsSync(REACT_BUILD_DIR)) {
+        console.log(`Configuration dashboard: http://localhost:${PORT}/`);
+    } else {
+        console.log(
+            `   (React build not found. Run 'npm run build' to build the dashboard.)`
+        );
+    }
+    console.log(`View stats at: http://localhost:${PORT}/stats`);
+    console.log(`\nPress Ctrl+C to stop the server`);
+});
+
+// Graceful shutdown
+process.on('SIGINT', () => {
+    console.log('\n\nShutting down server...');
+    process.exit(0);
+});
+

@@ -9,8 +9,7 @@
     "dev": "vite",
     "build": "tsc && vite build",
     "build:server": "tsc server/server.ts --outDir dist-server --module commonjs --target es2020 --esModuleInterop --resolveJsonModule",
-    "preview": "vite preview",
-    "sim:flash": "tsx scripts/flash-crowd-sim.ts"
+    "preview": "vite preview"
   },
   "keywords": [
     "p2p",

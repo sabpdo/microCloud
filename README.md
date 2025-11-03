@@ -26,8 +26,6 @@ microCloud/
 │   ├── main.tsx        # React entry point
 │   ├── types.ts        # TypeScript type definitions
 │   └── index.css       # Global styles
-├── scripts/            # Testing and simulation scripts
-│   └── flash-crowd-sim.ts  # Flash crowd simulation script
 ├── index.html          # Vite entry point for React app
 ├── vite.config.ts      # Vite configuration
 ├── tsconfig.json       # TypeScript config for React app
@@ -105,17 +103,25 @@ The dashboard is built with React and TypeScript. To use it:
 
 **Dashboard Features:**
 
-1. **Reputation Scoring Weights** - Adjust weights (a-g) for the reputation scoring function
-2. **Peer Selection Preferences** - Select up to 2 factors to prioritize (bandwidth, uptime, upload success rate, storage)
-3. **Role Assignment Thresholds** - Configure anchor node promotion and update cycles
-4. **Content-Specific Policies** - Prioritize certain content types for caching
-5. **Security & Trust Boundaries** - Configure trust modes, whitelists, and security settings
+The dashboard has two tabs:
 
-**Configuration Persistence:**
+1. **Configuration Tab** - Simple content caching policy selection
 
-- All settings are saved to browser localStorage automatically
-- Export/import configuration as JSON files
-- Reset to defaults option available
+   - Choose which content types to prioritize for caching (Video, Images, JSON/Data, Text)
+   - Changes are saved automatically to browser localStorage
+   - Designed to be simple and user-friendly (Net Neutrality principle)
+
+2. **Performance Metrics Tab** - Real-time cache performance visualization
+
+   - Cache hit ratio visualization (ring chart)
+   - Request statistics and data served
+   - Auto-refreshing metrics with pause/resume controls
+   - Requests breakdown by path
+
+3. **Simulation Tab** - Flash crowd simulation (runs on the server)
+   - Configure: number of peers, target file, duration, request interval, churn rate
+   - Start simulation from the UI; results appear in a summary card
+   - Metrics include cache hit ratio, bandwidth saved, avg latency, latency improvement, Jain's fairness index, recovery speed
 
 ## Development
 
@@ -127,47 +133,36 @@ Add any static files you want to serve to the `public/` directory. The server wi
 
 The dashboard is built with React and TypeScript. To modify it:
 
-- `src/App.tsx` - Main application component
+- `src/App.tsx` - Main application component with tab navigation
 - `src/components/` - Individual React components
-  - `ReputationWeights.tsx` - Reputation scoring weights configuration
-  - `PeerSelection.tsx` - Peer selection preferences
-  - `RoleAssignment.tsx` - Role assignment thresholds
-  - `ContentPolicies.tsx` - Content-specific policies
-  - `SecuritySettings.tsx` - Security and trust settings
-  - `ActionButtons.tsx` - Save, reset, export, import buttons
-  - `SliderControl.tsx` - Reusable slider component
+  - `ContentPolicies.tsx` - Content caching policy selection (only user-configurable setting)
   - `MetricsDashboard.tsx` - Performance metrics visualization
+  - `SimulationControl.tsx` - UI to configure and run flash crowd simulation
 - `src/hooks/useConfig.ts` - Custom hook for configuration management
 - `src/types.ts` - TypeScript type definitions
 - `src/index.css` - Global styles
 
 After making changes, the dev server will hot-reload automatically when running `npm run dev`.
 
-## Testing
+## Simulation
 
-### Flash Crowd Simulation
+Use the Simulation tab in the dashboard to run a flash crowd test against the toy origin server.
 
-The project includes a script to simulate multiple peers making simultaneous requests, allowing you to test cache hit ratios and server load during flash crowd scenarios.
+Configurable options:
 
-**Run the simulation:**
+- Number of peers (e.g., 20–100)
+- Target file (e.g., `/sample.txt`, `/sample.json`)
+- Duration (seconds)
+- Request interval (ms)
+- Churn rate (0–1 probability of peers leaving per cycle)
 
-```bash
-npm run sim:flash
-```
+The simulation runs server-side and reports:
 
-**Customize the simulation:**
-
-```bash
-NUM_PEERS=50 TARGET_FILE=/sample.json npm run sim:flash
-```
-
-Available environment variables:
-
-- `NUM_PEERS` - Number of simulated peers (default: 20)
-- `TARGET_FILE` - File path to request (default: /sample.txt)
-- `REQUEST_INTERVAL` - Milliseconds between requests (default: 100)
-- `SIMULATION_DURATION` - How long to run simulation in ms (default: 30000)
-- `SERVER_URL` - Server URL (default: http://localhost:3000)
+- Cache hit ratio, bandwidth saved
+- Total/peer/origin requests
+- Average latency and latency improvement
+- Jain’s fairness index
+- Recovery speed after churn
 
 ### Performance Metrics
 
@@ -185,16 +180,10 @@ The metrics page auto-refreshes every 2 seconds and can be paused/resumed. Use t
 - `GET /stats` - Get current statistics including cache hit ratio
 - `POST /api/cache-hit` - Record a cache hit (when peer serves content)
 - `POST /api/cache-miss` - Record a cache miss (when peer requests from origin)
+- `POST /api/simulate` - Trigger a server-side flash crowd simulation
 - `POST /stats/reset` - Reset all statistics
 
 This allows comparison between server load with and without peer-assisted caching.
-
-## Next Steps
-
-- Implement WebRTC peer discovery and signaling
-- Build the peer-assisted caching layer
-- Implement dynamic role assignment
-- Add cooperative offloading capabilities
 
 ## License
 

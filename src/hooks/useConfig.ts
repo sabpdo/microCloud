@@ -14,20 +14,14 @@ export function useConfig() {
             if (saved) {
                 const parsed = JSON.parse(saved);
                 // Merge with defaults to handle missing properties
+                // Only keep contentPolicies for simplified config
                 const merged: Config = {
                     ...defaultConfig,
                     ...parsed,
-                    weights: { ...defaultConfig.weights, ...parsed.weights },
-                    preferences: { ...defaultConfig.preferences, ...parsed.preferences },
-                    roleAssignment: {
-                        ...defaultConfig.roleAssignment,
-                        ...parsed.roleAssignment,
-                    },
                     contentPolicies: {
                         ...defaultConfig.contentPolicies,
-                        ...parsed.contentPolicies,
+                        ...(parsed.contentPolicies || {}),
                     },
-                    security: { ...defaultConfig.security, ...parsed.security },
                 };
                 setConfig(merged);
             }
@@ -90,20 +84,14 @@ export function useConfig() {
                     return;
                 }
                 const imported = JSON.parse(result);
+                // Only keep contentPolicies for simplified config
                 const merged: Config = {
                     ...defaultConfig,
                     ...imported,
-                    weights: { ...defaultConfig.weights, ...imported.weights },
-                    preferences: { ...defaultConfig.preferences, ...imported.preferences },
-                    roleAssignment: {
-                        ...defaultConfig.roleAssignment,
-                        ...imported.roleAssignment,
-                    },
                     contentPolicies: {
                         ...defaultConfig.contentPolicies,
-                        ...imported.contentPolicies,
+                        ...(imported.contentPolicies || {}),
                     },
-                    security: { ...defaultConfig.security, ...imported.security },
                 };
                 saveConfig(merged);
                 toast.success('Configuration imported successfully!');

@@ -12,8 +12,6 @@ import {
     Grid,
     Paper,
 } from '@mantine/core';
-// Icons - using simple text/emoji instead of tabler icons for simplicity
-// Can be replaced with @tabler/icons-react if installed
 
 interface Stats {
     totalRequests: number;
@@ -63,6 +61,7 @@ export function MetricsDashboard() {
         }
     };
 
+
     if (loading) {
         return (
             <Card>
@@ -103,6 +102,7 @@ export function MetricsDashboard() {
                     </Button>
                 </Group>
             </Group>
+
 
             <Grid>
                 {/* Cache Hit Ratio */}

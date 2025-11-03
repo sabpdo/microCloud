@@ -32,10 +32,11 @@ export function ContentPolicies({
     return (
         <Card shadow="sm" padding="lg" radius="md" withBorder>
             <Title order={2} mb="xs" c="blue">
-                Content-Specific Policies
+                Content Caching Policies
             </Title>
             <Text size="sm" c="dimmed" mb="lg">
-                Prioritize certain content types for caching and peer distribution.
+                Select which content types should be prioritized for caching and sharing with nearby peers.
+                This helps reduce server load and improve performance for popular content.
             </Text>
 
             <SimpleGrid cols={{ base: 2, sm: 4 }} spacing="md">

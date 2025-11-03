@@ -135,6 +135,55 @@ app.post('/api/cache-miss', (req: Request, res: Response) => {
     res.json({ success: true, stats });
 });
 
+// Get list of available files for simulation
+app.get('/api/files', (req: Request, res: Response) => {
+    try {
+        const files: string[] = [];
+        const filePaths = ['/sample.txt', '/sample.json', '/demo.html', '/style.css'];
+
+        // Check which files actually exist
+        filePaths.forEach((filePath) => {
+            const fileName = filePath.substring(1); // Remove leading /
+            const filePathOnDisk = path.join(STATIC_DIR, fileName);
+            if (fs.existsSync(filePathOnDisk)) {
+                files.push(filePath);
+            }
+        });
+
+        res.json({ files });
+    } catch (error) {
+        console.error('Error listing files:', error);
+        res.status(500).json({ error: 'Failed to list files' });
+    }
+});
+
+// Flash crowd simulation endpoint
+app.post('/api/simulate', async (req: Request, res: Response) => {
+    try {
+        const { numPeers, targetFile, duration, requestInterval, churnRate } = req.body;
+
+        const config = {
+            numPeers: numPeers || 20,
+            targetFile: targetFile || '/sample.txt',
+            duration: duration || 30, // seconds
+            requestInterval: requestInterval || 100, // ms
+            churnRate: churnRate || 0,
+        };
+
+        // Import and run simulation
+        const { runFlashCrowdSimulation } = await import('./simulation');
+        const results = await runFlashCrowdSimulation(config);
+
+        res.json({ success: true, results });
+    } catch (error) {
+        console.error('Simulation error:', error);
+        res.status(500).json({
+            success: false,
+            error: error instanceof Error ? error.message : 'Unknown error'
+        });
+    }
+});
+
 // Reset stats endpoint (for testing)
 app.post('/stats/reset', (req: Request, res: Response) => {
     stats = {

@@ -157,6 +157,38 @@ app.get('/api/files', (req: Request, res: Response) => {
     }
 });
 
+// Proxy endpoint for external URLs (to handle CORS)
+app.get('/api/proxy', async (req: Request, res: Response) => {
+    try {
+        const url = req.query.url as string;
+        if (!url) {
+            return res.status(400).json({ error: 'URL parameter required' });
+        }
+
+        // Validate URL
+        try {
+            new URL(url);
+        } catch (error) {
+            return res.status(400).json({ error: 'Invalid URL' });
+        }
+
+        // Fetch the external URL
+        const response = await fetch(url);
+        const contentType = response.headers.get('Content-Type') || 'text/plain';
+        const content = await response.text();
+
+        // Set CORS headers
+        res.header('Access-Control-Allow-Origin', '*');
+        res.header('Content-Type', contentType);
+        res.send(content);
+    } catch (error) {
+        console.error('Proxy error:', error);
+        res.status(500).json({
+            error: error instanceof Error ? error.message : 'Failed to fetch URL'
+        });
+    }
+});
+
 // Flash crowd simulation endpoint
 app.post('/api/simulate', async (req: Request, res: Response) => {
     try {

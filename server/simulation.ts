@@ -108,7 +108,12 @@ async function simulatePeer(
             // Cache miss - request from origin (higher latency)
             try {
                 const requestStart = Date.now();
-                const response = await fetch(`${getServerUrl()}${config.targetFile}`);
+                // Check if targetFile is a full URL or a local path
+                const targetUrl = config.targetFile.startsWith('http://') || config.targetFile.startsWith('https://')
+                    ? config.targetFile
+                    : `${getServerUrl()}${config.targetFile}`;
+                
+                const response = await fetch(targetUrl);
                 if (response.ok) {
                     await response.text();
                     const actualLatency = Date.now() - requestStart;

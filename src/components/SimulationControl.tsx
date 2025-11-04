@@ -14,6 +14,8 @@ import {
     Badge,
     Group,
     Code,
+    TextInput,
+    SegmentedControl,
 } from '@mantine/core';
 import { toast } from 'sonner';
 
@@ -52,6 +54,8 @@ export function SimulationControl() {
     const [progress, setProgress] = useState(0);
     const [results, setResults] = useState<SimulationResults | null>(null);
     const [availableFiles, setAvailableFiles] = useState<string[]>([]);
+    const [targetType, setTargetType] = useState<'file' | 'url'>('file');
+    const [customUrl, setCustomUrl] = useState<string>('');
 
     // Fetch available files on mount
     useEffect(() => {
@@ -68,6 +72,20 @@ export function SimulationControl() {
     }, []);
 
     const runSimulation = async () => {
+        // Validate URL if using custom URL
+        if (targetType === 'url') {
+            if (!customUrl.trim()) {
+                toast.error('Please enter a valid URL');
+                return;
+            }
+            try {
+                new URL(customUrl);
+            } catch (error) {
+                toast.error('Please enter a valid URL (e.g., https://example.com/file.txt)');
+                return;
+            }
+        }
+
         setRunning(true);
         setProgress(0);
         setResults(null);
@@ -85,10 +103,16 @@ export function SimulationControl() {
                 });
             }, 500);
 
+            // Use custom URL if provided, otherwise use selected file
+            const target = targetType === 'url' ? customUrl.trim() : config.targetFile;
+
             const response = await fetch('/api/simulate', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(config),
+                body: JSON.stringify({
+                    ...config,
+                    targetFile: target,
+                }),
             });
 
             clearInterval(progressInterval);
@@ -150,18 +174,44 @@ export function SimulationControl() {
                         disabled={running}
                     />
 
-                    <Select
-                        label="Target File"
-                        description="Select a file to request during simulation"
-                        value={config.targetFile}
-                        onChange={(value) =>
-                            setConfig({ ...config, targetFile: value || '/sample.txt' })
-                        }
-                        data={availableFiles.length > 0 ? availableFiles : ['/sample.txt']}
-                        disabled={running}
-                        searchable
-                        allowDeselect={false}
-                    />
+                    <Stack gap="xs">
+                        <Text size="sm" fw={500}>
+                            Target Resource
+                        </Text>
+                        <SegmentedControl
+                            value={targetType}
+                            onChange={(value) => setTargetType(value as 'file' | 'url')}
+                            data={[
+                                { label: 'Local File', value: 'file' },
+                                { label: 'Custom URL', value: 'url' },
+                            ]}
+                            disabled={running}
+                            fullWidth
+                        />
+                        {targetType === 'file' ? (
+                            <Select
+                                label="Target File"
+                                description="Select a file to request during simulation"
+                                value={config.targetFile}
+                                onChange={(value) =>
+                                    setConfig({ ...config, targetFile: value || '/sample.txt' })
+                                }
+                                data={availableFiles.length > 0 ? availableFiles : ['/sample.txt']}
+                                disabled={running}
+                                searchable
+                                allowDeselect={false}
+                            />
+                        ) : (
+                            <TextInput
+                                label="Target URL"
+                                description="Enter a full URL to fetch (e.g., https://example.com/file.txt)"
+                                placeholder="https://example.com/path/to/file.txt"
+                                value={customUrl}
+                                onChange={(e) => setCustomUrl(e.target.value)}
+                                disabled={running}
+                            />
+                        )}
+                    </Stack>
 
                     <NumberInput
                         label="Duration (seconds)"

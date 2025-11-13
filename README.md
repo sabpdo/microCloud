@@ -123,27 +123,6 @@ The dashboard has two tabs:
    - Start simulation from the UI; results appear in a summary card
    - Metrics include cache hit ratio, bandwidth saved, avg latency, latency improvement, Jain's fairness index, recovery speed
 
-## Development
-
-### Adding Test Files
-
-Add any static files you want to serve to the `public/` directory. The server will automatically serve them.
-
-### Modifying the Dashboard
-
-The dashboard is built with React and TypeScript. To modify it:
-
-- `src/App.tsx` - Main application component with tab navigation
-- `src/components/` - Individual React components
-  - `ContentPolicies.tsx` - Content caching policy selection (only user-configurable setting)
-  - `MetricsDashboard.tsx` - Performance metrics visualization
-  - `SimulationControl.tsx` - UI to configure and run flash crowd simulation
-- `src/hooks/useConfig.ts` - Custom hook for configuration management
-- `src/types.ts` - TypeScript type definitions
-- `src/index.css` - Global styles
-
-After making changes, the dev server will hot-reload automatically when running `npm run dev`.
-
 ## Simulation
 
 Use the Simulation tab in the dashboard to run a flash crowd test against the toy origin server.

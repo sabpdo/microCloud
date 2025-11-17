@@ -48,6 +48,26 @@ export class MemoryCache<T = any> {
   }
 
   /**
+   * Get all entries in the cache
+   * @returns Array of [key, value] pairs
+   */
+  entries(): Array<[string, T]> {
+    const now = Date.now();
+    const result: Array<[string, T]> = [];
+    
+    for (const [key, entry] of this.cache.entries()) {
+      // Skip expired entries
+      if (entry.expiry && now > entry.expiry) {
+        this.cache.delete(key);
+        continue;
+      }
+      result.push([key, entry.value]);
+    }
+    
+    return result;
+  }
+
+  /**
    * Delete a value from the cache
    * @param key Cache key
    * @returns true if an element existed and has been removed, false otherwise

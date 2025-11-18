@@ -1,16 +1,20 @@
 {
   "extends": "./tsconfig.json",
   "compilerOptions": {
-    "module": "CommonJS",
     "target": "ES2020",
-    "outDir": "./dist-server",
-    "rootDir": "./server",
+    "module": "CommonJS",
+    "outDir": "dist/server",
+    "rootDir": "server/src",
     "moduleResolution": "node",
     "esModuleInterop": true,
     "skipLibCheck": true,
-    "noEmit": false
+    "resolveJsonModule": true,
+    "strict": true,
+    "noEmit": false,
+    "allowImportingTsExtensions": false,
+    "isolatedModules": false,
+    "jsx": "react"
   },
-  "include": ["server/**/*"],
-  "exclude": ["node_modules", "src", "dist"]
+  "include": ["server/src/**/*.ts", "server/src/**/*.tsx"],
+  "exclude": ["node_modules", "dist", "client", "src"]
 }
-

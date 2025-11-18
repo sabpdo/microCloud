@@ -1,0 +1,116 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>µCloud WebRTC Demo</title>
+    <style>
+      body {
+        font-family: system-ui, -apple-system, sans-serif;
+        margin: 2rem;
+        max-width: 800px;
+      }
+      .row {
+        display: flex;
+        gap: 1rem;
+        align-items: center;
+        margin-bottom: 1rem;
+      }
+      input[type="text"] {
+        padding: 0.5rem;
+        flex: 1;
+      }
+      button {
+        padding: 0.5rem 1rem;
+        cursor: pointer;
+      }
+      button:disabled {
+        opacity: 0.5;
+        cursor: not-allowed;
+      }
+      #log {
+        border: 1px solid #ddd;
+        padding: 1rem;
+        height: 300px;
+        overflow: auto;
+        background: #fafafa;
+        font-family: monospace;
+        font-size: 0.9rem;
+      }
+      .status {
+        padding: 0.5rem;
+        margin-bottom: 1rem;
+        border-radius: 4px;
+      }
+      .status.connected {
+        background: #d4edda;
+        color: #155724;
+      }
+      .status.disconnected {
+        background: #f8d7da;
+        color: #721c24;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>µCloud WebRTC Demo</h1>
+    <div id="status" class="status disconnected">Disconnected</div>
+    
+    <div class="row">
+      <label>Room:</label>
+      <input id="roomId" type="text" value="demo" />
+      <button id="btnJoin">Join</button>
+      <button id="btnLeave" disabled>Leave</button>
+    </div>
+
+    <h3>Log</h3>
+    <div id="log"></div>
+
+    <script src="dist/webrtc.js"></script>
+    <script>
+      const logEl = document.getElementById('log');
+      const statusEl = document.getElementById('status');
+      
+      function log(...args) {
+        const entry = document.createElement('div');
+        entry.textContent = new Date().toLocaleTimeString() + ' ' + 
+          args.map(a => typeof a === 'string' ? a : JSON.stringify(a)).join(' ');
+        logEl.appendChild(entry);
+        logEl.scrollTop = logEl.scrollHeight;
+      }
+
+      const roomInput = document.getElementById('roomId');
+      const btnJoin = document.getElementById('btnJoin');
+      const btnLeave = document.getElementById('btnLeave');
+
+      const client = new MicroCloudClient({
+        signalingUrl: 'ws://localhost:3000',
+        onLog: log,
+        onOpen: () => {
+          statusEl.textContent = 'Connected';
+          statusEl.className = 'status connected';
+          btnLeave.disabled = false;
+          log('WebRTC connection established');
+        },
+        onClose: () => {
+          statusEl.textContent = 'Disconnected';
+          statusEl.className = 'status disconnected';
+          btnLeave.disabled = true;
+          btnJoin.disabled = false;
+          log('WebRTC connection closed');
+        }
+      });
+
+      btnJoin.onclick = async () => {
+        btnJoin.disabled = true;
+        log('Joining room:', roomInput.value);
+        await client.join(roomInput.value);
+      };
+
+      btnLeave.onclick = async () => {
+        await client.leave();
+        btnJoin.disabled = false;
+      };
+    </script>
+  </body>
+</html>

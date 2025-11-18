@@ -1,23 +1,106 @@
 /**
- * μCloud Toy HTTP Server
+ * μCloud Combined Server
  *
- * A minimal HTTP server that acts as the origin server for static files.
- * This server will only be contacted when peer cache misses occur.
+ * HTTP origin server for static files and API endpoints.
+ * WebSocket signaling server for WebRTC peer connections.
+ * This server handles both HTTP requests and WebRTC signaling.
  */
 
 import express, { Request, Response, NextFunction } from 'express';
+import http from 'http';
 import path from 'path';
 import fs from 'fs';
 import { fileURLToPath } from 'url';
+import { WebSocketServer, WebSocket } from 'ws';
 
 // Get __dirname equivalent for ES modules
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 const app = express();
-const PORT = process.env.PORT || 3000;
+const PORT = process.env.PORT ? Number(process.env.PORT) : 3000;
 const STATIC_DIR = path.join(__dirname, '..', 'public');
 const REACT_BUILD_DIR = path.join(__dirname, '..', 'dist');
+
+// Create HTTP server (needed for WebSocket)
+const server = http.createServer(app);
+
+// WebSocket server for WebRTC signaling
+const wss = new WebSocketServer({ server });
+
+// WebRTC signaling: room management
+type Room = Set<WebSocket>;
+const rooms = new Map<string, Room>();
+
+function joinRoom(roomId: string, ws: WebSocket) {
+  if (!rooms.has(roomId)) rooms.set(roomId, new Set());
+  rooms.get(roomId)!.add(ws);
+  (ws as any)._roomId = roomId;
+}
+
+function leaveRoom(ws: WebSocket) {
+  const roomId = (ws as any)._roomId;
+  if (!roomId) return;
+  const room = rooms.get(roomId);
+  if (room) {
+    room.delete(ws);
+    if (room.size === 0) rooms.delete(roomId);
+  }
+}
+
+function broadcastToRoom(roomId: string, sender: WebSocket, message: any) {
+  const room = rooms.get(roomId);
+  if (!room) return;
+  const payload = JSON.stringify(message);
+  for (const client of room) {
+    if (client !== sender && client.readyState === WebSocket.OPEN) {
+      client.send(payload);
+    }
+  }
+}
+
+// WebSocket connection handler for WebRTC signaling
+wss.on('connection', (ws: WebSocket) => {
+  ws.on('message', (data) => {
+    const msg = typeof data === 'string' ? data : data.toString('utf8');
+    let parsed: any;
+    try {
+      parsed = JSON.parse(msg);
+    } catch {
+      return;
+    }
+
+    if (!parsed || typeof parsed.type !== 'string') return;
+
+    switch (parsed.type) {
+      case 'join': {
+        const roomId = String(parsed.roomId || 'default');
+        joinRoom(roomId, ws);
+        const peerCount = rooms.get(roomId)!.size - 1;
+        ws.send(JSON.stringify({ type: 'joined', roomId, peers: peerCount }));
+        broadcastToRoom(roomId, ws, { type: 'peer-joined' });
+        break;
+      }
+      case 'signal': {
+        const roomId = (ws as any)._roomId || 'default';
+        broadcastToRoom(roomId, ws, { type: 'signal', payload: parsed.payload });
+        break;
+      }
+      case 'leave': {
+        const roomId = (ws as any)._roomId;
+        if (roomId) broadcastToRoom(roomId, ws, { type: 'peer-left' });
+        leaveRoom(ws);
+        break;
+      }
+    }
+  });
+
+  ws.on('close', () => {
+    const roomId = (ws as any)._roomId;
+    if (roomId) broadcastToRoom(roomId, ws, { type: 'peer-left' });
+    leaveRoom(ws);
+  });
+});
 
 interface Stats {
     totalRequests: number;
@@ -254,9 +337,11 @@ app.use('/sample.json', express.static(path.join(STATIC_DIR, 'sample.json')));
 app.use('/demo.html', express.static(path.join(STATIC_DIR, 'demo.html')));
 app.use('/style.css', express.static(path.join(STATIC_DIR, 'style.css')));
 
-// Start server
-app.listen(PORT, () => {
-    console.log(`μCloud Origin Server running on http://localhost:${PORT}`);
+// Start server (HTTP + WebSocket)
+server.listen(PORT, () => {
+    console.log(`μCloud Server running on http://localhost:${PORT}`);
+    console.log(`  - HTTP API & static files`);
+    console.log(`  - WebSocket signaling (ws://localhost:${PORT})`);
     console.log(`Serving static files from: ${STATIC_DIR}`);
     if (fs.existsSync(REACT_BUILD_DIR)) {
         console.log(`Configuration dashboard: http://localhost:${PORT}/`);
@@ -267,6 +352,16 @@ app.listen(PORT, () => {
     }
     console.log(`View stats at: http://localhost:${PORT}/stats`);
     console.log(`\nPress Ctrl+C to stop the server`);
+}).on('error', (err: NodeJS.ErrnoException) => {
+    if (err.code === 'EADDRINUSE') {
+        console.error(`\n❌ Port ${PORT} is already in use.`);
+        console.error(`   Another process is using this port.`);
+        console.error(`   To find and kill it, run: lsof -ti:${PORT} | xargs kill -9`);
+        console.error(`   Or change the port with: PORT=3001 npm run dev:server\n`);
+    } else {
+        console.error(`\n❌ Server error:`, err);
+    }
+    process.exit(1);
 });
 
 // Graceful shutdown

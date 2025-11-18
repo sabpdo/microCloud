@@ -167,6 +167,97 @@ The metrics page auto-refreshes every 2 seconds and can be paused/resumed. Use t
 
 This allows comparison between server load with and without peer-assisted caching.
 
+# WebRTC
+
+## Starting WebRTC Client Connections
+
+The WebRTC client enables peer-to-peer connections between browser instances for direct data transfer.
+
+### Step-by-Step Setup
+
+1. **Start the Signaling Server**
+
+   The signaling server handles WebRTC handshake coordination between peers. Start it in a terminal:
+
+   ```bash
+   npm run server
+   ```
+
+   The server will start on `http://localhost:3001` (or the port specified by `PORT` environment variable).
+
+   You should see:
+   ```
+   µCloud signaling server on http://localhost:3001
+   ```
+
+2. **Build the WebRTC Client**
+
+   In a separate terminal, build the client bundle:
+
+   ```bash
+   npm run build:client
+   ```
+
+   This compiles `client/src/webrtc.tsx` and outputs `client/dist/webrtc.js`.
+
+3. **Open Client Instances**
+
+   Open `client/index.html` in your browser. You can:
+   - Open it directly: `file:///path/to/microCloud/client/index.html`
+   - Or serve it with a local server (recommended):
+     ```bash
+     # Using Python
+     cd client && python3 -m http.server 8080
+     # Then open http://localhost:8080
+     
+     # Or using Node.js http-server
+     npx http-server client -p 8080
+     ```
+
+4. **Connect Multiple Peers**
+
+   - Open multiple browser windows/tabs (or different browsers)
+   - Each instance should load `client/index.html`
+   - Enter the same room name (default: "demo") in the Room input field
+   - Click "Join" on each instance
+   - You should see:
+     - Status changes to "Connected" (green)
+     - Log messages showing WebRTC connection establishment
+     - Heartbeat messages every 5 seconds indicating active peer connections
+     - ICE candidate exchanges and connection state changes
+
+5. **Verify Connections**
+
+   - Check the log output in each browser window
+   - Look for messages like:
+     - `"peer connection created"`
+     - `"datachannel opened"`
+     - `"heartbeat sent"` / `"heartbeat received"`
+     - `"ice state: connected"`
+   - The status indicator should show "Connected" (green background)
+
+### Architecture
+
+- **Signaling Server** (`server/src/index.tsx`): WebSocket server for WebRTC handshake signaling
+  - Handles room-based peer discovery
+  - Relays SDP offers/answers and ICE candidates between peers
+  - Manages peer join/leave events
+
+- **WebRTC Client** (`client/src/webrtc.tsx`): Browser client with WebRTC connections
+  - Establishes RTCPeerConnection with STUN server (Google's public STUN)
+  - Creates RTCDataChannel for peer-to-peer data transfer
+  - Implements heartbeat mechanism (5s interval, 15s timeout) to monitor connection health
+  - Handles SDP/ICE negotiation automatically
+
+### Troubleshooting
+
+- **Connection fails**: Ensure the signaling server is running on port 3001
+- **No peers visible**: Make sure all clients join the same room name
+- **Heartbeats not working**: Check browser console for WebRTC errors; some networks/firewalls may block WebRTC
+- **Client won't load**: Ensure `npm run build:client` completed successfully and `client/dist/webrtc.js` exists
+
+
 ## License
 
 MIT
+

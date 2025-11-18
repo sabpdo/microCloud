@@ -1,15 +1,3 @@
-# µCloud
-
-# WebRTC
-
-## Run
-
-1. Install dependencies:
-   ```bash
-   npm install
-   ```
-
-2. Start signaling server:
 # µCloud - Peer-Assisted Caching System
 
 **Sabrina, Abena, Alison, Victoria**
@@ -105,18 +93,6 @@ The dashboard is built with React and TypeScript. To use it:
    npm run dev
    ```
 
-3. Build and open client:
-   ```bash
-   npm run build:client
-   ```
-   Then open `client/index.html` in a browser (or use a local server).
-
-4. Open multiple browser windows/tabs to test peer connections (should enter same room and see heartbeats)
-
-Architecture so far:
-
-- **Signaling Server** (`server/src/index.tsx`): WebSocket server for WebRTC handshake signaling
-- **WebRTC Client** (`client/src/webrtc.tsx`): Browser client with WebRTC connections, SDP/ICE handshakes, and heartbeat monitoring
    This starts the Vite dev server on `http://localhost:5173`
 
 2. **Production build**:
@@ -188,6 +164,35 @@ The metrics page auto-refreshes every 2 seconds and can be paused/resumed. Use t
 
 This allows comparison between server load with and without peer-assisted caching.
 
+# WebRTC
+
+## Run
+
+1. Install dependencies:
+   ```bash
+   npm install
+   ```
+
+2. Start signaling server:
+   ```bash
+   npm run dev
+   ```
+
+3. Build and open client:
+   ```bash
+   npm run build:client
+   ```
+   Then open `client/index.html` in a browser (or use a local server).
+
+4. Open multiple browser windows/tabs to test peer connections (should enter same room and see heartbeats)
+
+Architecture so far:
+
+- **Signaling Server** (`server/src/index.tsx`): WebSocket server for WebRTC handshake signaling
+- **WebRTC Client** (`client/src/webrtc.tsx`): Browser client with WebRTC connections, SDP/ICE handshakes, and heartbeat monitoring
+
+
 ## License
 
 MIT
+

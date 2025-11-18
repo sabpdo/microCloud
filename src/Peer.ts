@@ -188,7 +188,7 @@ export class Peer {
             this.requestChunk();
         }
         else {
-            let peerID = this.chunkIndex.get(currChunk)!.get_max();
+            let peerID = this.chunkIndex.get(currChunk)!.delete_max();
             await this.peerIndex.get(peerID)!.object.grantChunk(currChunk);
         }
     }

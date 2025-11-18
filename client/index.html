@@ -84,7 +84,7 @@
       const btnLeave = document.getElementById('btnLeave');
 
       const client = new MicroCloudClient({
-        signalingUrl: 'ws://localhost:3001',
+        signalingUrl: 'ws://localhost:3000',
         onLog: log,
         onOpen: () => {
           statusEl.textContent = 'Connected';

@@ -20,6 +20,9 @@ microCloud/
 │   ├── sample.json     # Sample JSON file
 │   └── style.css       # Styles for demo page
 ├── src/                # React TypeScript dashboard source
+│   ├── cache/           # Caching system implementation
+│   │   ├── index.ts     # Cache module exports
+│   │   └── memory-cache.ts  # In-memory cache
 │   ├── components/     # React components
 │   ├── hooks/          # Custom React hooks
 │   ├── App.tsx         # Main app component

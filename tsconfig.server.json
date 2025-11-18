@@ -11,6 +11,8 @@
     "resolveJsonModule": true,
     "strict": true,
     "noEmit": false,
+    "allowImportingTsExtensions": false,
+    "isolatedModules": false,
     "jsx": "react"
   },
   "include": ["server/src/**/*.ts", "server/src/**/*.tsx"],

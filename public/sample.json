@@ -1,0 +1,18 @@
+{
+  "name": "μCloud Test Resource",
+  "type": "JSON",
+  "description": "This is a sample JSON file for testing peer-assisted caching",
+  "timestamp": "2024-01-01T00:00:00Z",
+  "data": {
+    "version": "1.0",
+    "features": [
+      "Peer Discovery",
+      "Peer-Assisted Caching",
+      "Dynamic Role Assignment",
+      "Configurable Peer Selection",
+      "Cooperative Offloading"
+    ]
+  },
+  "size": "~500 bytes",
+  "purpose": "Demonstrates caching of structured data through the μCloud network"
+}

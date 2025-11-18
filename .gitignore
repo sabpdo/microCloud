@@ -1,9 +1,17 @@
 # Dependencies
 node_modules/
 
-# Build outputs
-dist/
-client/dist/
+# Logs
+*.log
+npm-debug.log*
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Environment variables
+.env
+.env.local
 
 # IDE
 .vscode/
@@ -11,6 +19,14 @@ client/dist/
 *.swp
 *.swo
 
-# OS
-.DS_Store
+# Build outputs
+dist/
+dist-server/
+build/
+
+# Test coverage
+coverage/
+
+# Local configuration
+*.local.json
 

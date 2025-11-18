@@ -1,0 +1,7 @@
+This is a sample text file for μCloud testing.
+
+When a peer requests this file, it will be cached locally and can be served
+to other nearby peers, reducing load on the origin server.
+
+This demonstrates peer-assisted caching in action.
+

@@ -1,0 +1,16 @@
+{
+  "compilerOptions": {
+    "target": "ES2020",
+    "module": "CommonJS",
+    "outDir": "dist",
+    "esModuleInterop": true,
+    "strict": true,
+    "skipLibCheck": true,
+    "resolveJsonModule": true,
+    "lib": ["ES2020", "DOM"],
+    "jsx": "react"
+  },
+  "include": ["server/src/**/*.ts", "server/src/**/*.tsx", "client/src/**/*.ts", "client/src/**/*.tsx"],
+  "exclude": ["node_modules", "dist", "client/dist"]
+}
+

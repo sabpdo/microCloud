@@ -8,7 +8,7 @@ interface PeerInfo {
     lastSeen: number;        // timestamp
     bandwidth: number;       // Mbps
     uptime: number;          // seconds
-    availableStorage: number; // MB
+    // availableStorage: number; // MB
     reputation: number;      // float
     cacheManifest: CacheManifest;
     object: Peer
@@ -18,10 +18,10 @@ interface Weights {
     a: number;
     b: number;
     c: number;
-    d: number;
-    e: number;
-    f: number;
-    g: number;
+    // d: number;
+    // e: number;
+    // f: number;
+    // g: number;
 }
 
 export class Peer {
@@ -33,14 +33,14 @@ export class Peer {
 
     // Peer interaction data
     private successfulUploads: number;
-    private integrityVerifications: number;
+    // private integrityVerifications: number;
     private failedTransfers: number;
     private anchorTreshould: number;
 
     // Device data
     private bandwidth: number;
-    private availableStorage: number;
-    private batteryPercentage: number;
+    // private availableStorage: number;
+    // private batteryPercentage: number;
     private connectionStartTime!: number;
     private connectionEndTime!: number;
     private isConnected!: boolean;
@@ -57,8 +57,8 @@ export class Peer {
     public constructor(
         peerID: string,
         initialBandwidth: number,
-        initialStorage: number,
-        initialBattery: number,
+        // initialStorage: number,
+        // initialBattery: number,
         weights: Weights,
         anchorThreshold: number,
     ) {
@@ -67,13 +67,13 @@ export class Peer {
         this.role = 'transient';
 
         this.successfulUploads = 0;
-        this.integrityVerifications = 0;
+        // this.integrityVerifications = 0;
         this.failedTransfers = 0;
         this.anchorTreshould = anchorThreshold;
 
         this.bandwidth = initialBandwidth;
-        this.availableStorage = initialStorage;
-        this.batteryPercentage = initialBattery;
+        // this.availableStorage = initialStorage;
+        // this.batteryPercentage = initialBattery;
 
         this.uptime = 0;
         this.chunkIndex = new Map();
@@ -93,13 +93,9 @@ export class Peer {
     // reputation decay over time?
     // only bandwidth, uptime, upload success rate
     public getReputation(): number {
-        return this.weights.a * this.successfulUploads + 
-                this.weights.b * this.integrityVerifications +
-                this.weights.c * this.failedTransfers + 
-                this.weights.d * this.bandwidth + 
-                this.weights.e * this.uptime +
-                this.weights.f * this.availableStorage +
-                this.weights.g * this.batteryPercentage;
+        return this.weights.a * this.successfulUploads/(this.successfulUploads+this.failedTransfers) + 
+                this.weights.b * this.bandwidth + 
+                this.weights.c * this.uptime;
     }
 
     public updateRole(): void {
@@ -147,7 +143,7 @@ export class Peer {
                                  lastSeen: this.connectionEndTime / 1000,
                                  bandwidth: this.bandwidth,
                                  uptime: this.uptime,
-                                 availableStorage: this.availableStorage,
+                                 // availableStorage: this.availableStorage,
                                  reputation: this.getReputation(),
                                  cacheManifest: this.cacheManifest,
                                  object: this,

@@ -1,7 +1,7 @@
 import { MemoryCache } from './memory-cache';
 
 // Define the shape of cached resources
-interface CachedResource {
+export interface CachedResource {
   content: string | ArrayBuffer;
   mimeType: string;
   timestamp: number;

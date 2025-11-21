@@ -4,7 +4,7 @@
  * Runs multiple simulations with different parameters and analyzes results
  */
 
-import { runFlashCrowdSimulation, SimulationConfig } from '../../../../server/simulation';
+import { runFlashCrowdSimulation, SimulationConfig } from '../server/simulation';
 import { analyzeMultipleResults, SimulationResult, printSummary } from './analyze-simulation';
 import fs from 'fs';
 import path from 'path';
@@ -99,7 +99,7 @@ if (require.main === module) {
     const results = await runBatchAnalysis(batchConfig, baseConfig);
 
     // Save results
-    const outputDir = path.join(__dirname, '../../results');
+    const outputDir = path.join(__dirname, 'results');
     fs.mkdirSync(outputDir, { recursive: true });
     const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
     const outputPath = path.join(outputDir, `batch-analysis-${timestamp}.json`);

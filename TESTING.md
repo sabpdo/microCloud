@@ -9,7 +9,7 @@
 For Python plotting tools:
 
 ```bash
-pip install -r analysis/utils/graphing/plotting/requirements.txt
+pip install -r analysis/requirements.txt
 ```
 
 ## Starting the Server
@@ -75,7 +75,7 @@ curl -X POST http://localhost:3000/api/simulate \
 Run multiple simulations with different parameters:
 
 ```bash
-npx tsx analysis/utils/graphing/plotting/run-batch-analysis.ts
+npx tsx analysis/run-batch-analysis.ts
 ```
 
 This runs simulations with:
@@ -91,13 +91,13 @@ Results are saved to `analysis/results/batch-analysis-<timestamp>.json`
 Analyze a single result file:
 
 ```bash
-npx tsx analysis/utils/graphing/plotting/analyze-simulation.ts results.json
+npx tsx analysis/analyze-simulation.ts results.json
 ```
 
 Analyze results from a directory:
 
 ```bash
-npx tsx analysis/utils/graphing/plotting/analyze-simulation.ts results-dir/
+npx tsx analysis/analyze-simulation.ts results-dir/
 ```
 
 ## Generating Plots (Python)
@@ -105,13 +105,13 @@ npx tsx analysis/utils/graphing/plotting/analyze-simulation.ts results-dir/
 Generate all plots from results:
 
 ```bash
-python analysis/utils/graphing/plotting/plot-metrics.py results.json --all --output-dir ./plots
+python analysis/plot-metrics.py results.json --all --output-dir ./plots
 ```
 
 Generate dashboard with multiple metrics:
 
 ```bash
-python analysis/utils/graphing/plotting/plot-metrics.py results.json --dashboard --output-dir ./plots
+python analysis/plot-metrics.py results.json --dashboard --output-dir ./plots
 ```
 
 Available plots:
@@ -128,7 +128,7 @@ Available plots:
 Compare multiple simulation runs:
 
 ```bash
-python analysis/utils/graphing/plotting/analyze-multi-run.py results-dir/ -o analysis-output.json
+python analysis/analyze-multi-run.py results-dir/ -o analysis-output.json
 ```
 
 This generates:
@@ -217,8 +217,8 @@ Simulation results are JSON format. Save results from the dashboard or API respo
 curl -X POST http://localhost:3000/api/simulate ... > results.json
 
 # Analyze saved results
-npx tsx analysis/utils/graphing/plotting/analyze-simulation.ts results.json
-python analysis/utils/graphing/plotting/plot-metrics.py results.json --all
+npx tsx analysis/analyze-simulation.ts results.json
+python analysis/plot-metrics.py results.json --all
 ```
 
 ## Step-by-Step Simulation Experiment
@@ -322,17 +322,17 @@ curl -X POST http://localhost:3000/api/simulate \
 
 ```bash
 # Analyze single result
-npx tsx analysis/utils/graphing/plotting/analyze-simulation.ts simulation-result-1.json
+npx tsx analysis/analyze-simulation.ts simulation-result-1.json
 
 # Generate plots
-python analysis/utils/graphing/plotting/plot-metrics.py simulation-result-1.json --all --output-dir ./plots
+python analysis/plot-metrics.py simulation-result-1.json --all --output-dir ./plots
 ```
 
 ### Step 7: Run Batch Analysis
 
 ```bash
 # Run multiple simulations with different parameters
-npx tsx analysis/utils/graphing/plotting/run-batch-analysis.ts
+npx tsx analysis/run-batch-analysis.ts
 ```
 
 This will:
@@ -362,17 +362,17 @@ for i in {1..5}; do
 done
 
 # Analyze all runs
-python analysis/utils/graphing/plotting/analyze-multi-run.py my-results/ -o comparison-results.json
+python analysis/analyze-multi-run.py my-results/ -o comparison-results.json
 ```
 
 ### Step 9: Generate Visualizations
 
 ```bash
 # Generate dashboard plot
-python analysis/utils/graphing/plotting/plot-metrics.py my-results/run-1.json --dashboard --output-dir ./plots
+python analysis/plot-metrics.py my-results/run-1.json --dashboard --output-dir ./plots
 
 # Generate all individual plots
-python analysis/utils/graphing/plotting/plot-metrics.py my-results/run-1.json --all --output-dir ./plots
+python analysis/plot-metrics.py my-results/run-1.json --all --output-dir ./plots
 ```
 
 Plots will be saved in `./plots/`:
@@ -427,7 +427,7 @@ for peers in 10 20 50 100; do
 done
 
 # Analyze all scalability results
-npx tsx analysis/utils/graphing/plotting/analyze-simulation.ts scalability-*.json
+npx tsx analysis/analyze-simulation.ts scalability-*.json
 ```
 
 This helps identify:

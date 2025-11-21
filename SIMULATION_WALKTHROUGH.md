@@ -88,7 +88,7 @@ curl -X POST http://localhost:3000/api/simulate \
 Analyze the results:
 
 ```bash
-npx tsx analysis/utils/graphing/plotting/analyze-simulation.ts experiment1-basic.json
+npx tsx analysis/analyze-simulation.ts experiment1-basic.json
 ```
 
 This will print:
@@ -176,7 +176,7 @@ done
 
 ```bash
 # Analyze all scalability results
-npx tsx analysis/utils/graphing/plotting/analyze-simulation.ts scalability-test/
+npx tsx analysis/analyze-simulation.ts scalability-test/
 ```
 
 This will show:
@@ -198,7 +198,7 @@ pip3 install matplotlib numpy pandas
 Or:
 
 ```bash
-pip3 install -r analysis/utils/graphing/plotting/requirements.txt
+pip3 install -r analysis/requirements.txt
 ```
 
 ### Step 2: Create Plots
@@ -206,7 +206,7 @@ pip3 install -r analysis/utils/graphing/plotting/requirements.txt
 Generate dashboard:
 
 ```bash
-python3 analysis/utils/graphing/plotting/plot-metrics.py \
+python3 analysis/plot-metrics.py \
   scalability-test/20peers.json \
   --dashboard \
   --output-dir ./plots
@@ -215,7 +215,7 @@ python3 analysis/utils/graphing/plotting/plot-metrics.py \
 Generate all individual plots:
 
 ```bash
-python3 analysis/utils/graphing/plotting/plot-metrics.py \
+python3 analysis/plot-metrics.py \
   scalability-test/20peers.json \
   --all \
   --output-dir ./plots

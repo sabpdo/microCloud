@@ -20,10 +20,10 @@ This directory contains tools for analyzing simulation results and generating vi
 
 ```bash
 # Run batch analysis
-npx tsx analysis/utils/graphing/plotting/run-batch-analysis.ts
+npx tsx analysis/run-batch-analysis.ts
 
 # Analyze specific results
-npx tsx analysis/utils/graphing/plotting/analyze-simulation.ts results.json
+npx tsx analysis/analyze-simulation.ts results.json
 ```
 
 ### Python
@@ -33,8 +33,8 @@ npx tsx analysis/utils/graphing/plotting/analyze-simulation.ts results.json
 pip install matplotlib numpy pandas
 
 # Generate plots
-python analysis/utils/graphing/plotting/plot-metrics.py results.json
+python analysis/plot-metrics.py results.json
 
 # Analyze multiple runs
-python analysis/utils/graphing/plotting/analyze-multi-run.py results_dir/
+python analysis/analyze-multi-run.py results_dir/
 ```

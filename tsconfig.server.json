@@ -4,7 +4,7 @@
     "target": "ES2020",
     "module": "CommonJS",
     "outDir": "dist/server",
-    "rootDir": "server/src",
+    // No rootDir restriction - we import from src/ and server/
     "moduleResolution": "node",
     "esModuleInterop": true,
     "skipLibCheck": true,
@@ -15,6 +15,6 @@
     "isolatedModules": false,
     "jsx": "react"
   },
-  "include": ["server/src/**/*.ts", "server/src/**/*.tsx"],
+  "include": ["server/**/*.ts"],
   "exclude": ["node_modules", "dist", "client", "src"]
 }

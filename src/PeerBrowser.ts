@@ -2,11 +2,10 @@
  * Browser-based Peer class that uses WebRTC for actual file transfers
  */
 
-import { MicroCloudClient, MicroCloudClientOptions } from '../client/src/webrtc';
+import { MicroCloudClient } from '../client/src/webrtc';
 import { CacheManifest, ManifestGenerator, CachedResource } from './cache/manifest-generator';
 import { MemoryCache } from './cache';
 import { fetchFromOrigin, OriginFetchResult } from './cache/origin-fallback';
-import { sha256 } from './utils/hash';
 
 interface PeerInfo {
   peerID: string;
@@ -50,14 +49,6 @@ export class PeerBrowser {
 
   // WebRTC client for this peer
   private webrtcClient: MicroCloudClient | null = null;
-  private pendingFileRequests = new Map<
-    string,
-    {
-      resolve: (resource: CachedResource) => void;
-      reject: (error: Error) => void;
-      timeout: number;
-    }
-  >();
 
   // Connected peers' WebRTC clients
   private peerConnections = new Map<string, MicroCloudClient>();
@@ -258,7 +249,16 @@ export class PeerBrowser {
     this.uptime = this.updateUptime();
   }
 
-  public async requestResource(resourceHash: string): Promise<CachedResource | null> {
+  /**
+   * Request a resource (file) by hash
+   * Tries local cache first, then peers via WebRTC, then origin server
+   * @param resourceHash - SHA-256 hash of the resource to request
+   * @param originPath - Optional path to use when falling back to origin (default: '/sample.txt')
+   */
+  public async requestResource(
+    resourceHash: string,
+    originPath: string = '/sample.txt'
+  ): Promise<CachedResource | null> {
     const DEFAULT_MAX_RETRIES = 3;
     const DEFAULT_TIMEOUT = 30000;
 
@@ -271,7 +271,7 @@ export class PeerBrowser {
     // Try to get from peers via WebRTC
     if (!this.chunkIndex.has(resourceHash)) {
       console.log(`No peers have resource ${resourceHash}, requesting from origin`);
-      const resource = await this.defaultToOrigin('');
+      const resource = await this.defaultToOrigin(originPath);
       if (resource) {
         this.cache.set(resourceHash, resource);
       }
@@ -285,7 +285,7 @@ export class PeerBrowser {
 
         if (peerQueue.getSize() === 0) {
           this.chunkIndex.delete(resourceHash);
-          const resource = await this.defaultToOrigin('');
+          const resource = await this.defaultToOrigin(originPath);
           if (resource) {
             this.cache.set(resourceHash, resource);
           }
@@ -355,7 +355,7 @@ export class PeerBrowser {
 
     // All peer attempts failed, fall back to origin
     console.log(`All peer requests failed for ${resourceHash}, falling back to origin`);
-    const resource = await this.defaultToOrigin('');
+    const resource = await this.defaultToOrigin(originPath);
     if (resource) {
       this.cache.set(resourceHash, resource);
     }

@@ -24,6 +24,17 @@ dist/
 dist-server/
 build/
 
+# Compiled JavaScript files (generated from TypeScript)
+# Exclude .js files in src/ and client/src/ directories (compiled from .ts)
+/src/**/*.js
+/client/src/**/*.js
+
+# Keep legitimate config files
+!jest.config.js
+!vite.config.js
+!scripts/**/*.js
+!public/**/*.js
+
 # Test coverage
 coverage/
 

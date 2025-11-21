@@ -73,7 +73,7 @@ function broadcastToRoom(roomId: string, sender: WebSocket, message: any) {
   const room = rooms.get(roomId);
   if (!room) return; // Room doesn't exist
   const payload = JSON.stringify(message);
-  
+
   // Send to all connections in room except sender
   for (const client of room) {
     if (client !== sender && client.readyState === WebSocket.OPEN) {
@@ -236,7 +236,7 @@ app.use((req: Request, res: Response, next: NextFunction) => {
   res.header('Access-Control-Allow-Origin', '*'); // Allow all origins
   res.header('Access-Control-Allow-Methods', 'GET, HEAD, OPTIONS');
   res.header('Access-Control-Allow-Headers', 'Content-Type');
-  
+
   // Handle preflight OPTIONS requests
   if (req.method === 'OPTIONS') {
     return res.sendStatus(200); // OK response for preflight

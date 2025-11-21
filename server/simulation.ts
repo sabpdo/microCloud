@@ -2,9 +2,12 @@
  * Flash Crowd Simulation Engine
  *
  * Runs on the server side to simulate multiple peers with varied properties
+ * Now uses PeerBrowser with MockWebRTCClient for actual file transfer simulation
  */
 
 import { createHash } from 'crypto';
+import { PeerBrowser } from '../src/PeerBrowser';
+import { MockMicroCloudClient } from './mock-webrtc-client';
 
 // Helper function for hashing in Node.js
 function sha256Sync(data: string): string {
@@ -82,6 +85,8 @@ const getServerUrl = () => {
 const fileRegistry = new Map<string, Set<string>>(); // fileHash -> Set<peerId>
 // Global peer registry: tracks all peers and their properties
 const peerRegistry = new Map<string, PeerProperties>(); // peerId -> Peer
+// Global PeerBrowser registry: actual peer instances with WebRTC clients for real transfers
+const peerBrowserRegistry = new Map<string, PeerBrowser>(); // peerId -> PeerBrowser
 
 /**
  * Generate a peer with varied properties to simulate real-world heterogeneity
@@ -132,6 +137,40 @@ function createPeer(
   };
 
   peerRegistry.set(peerId, peer);
+
+  // Create MockWebRTCClient first
+  const mockClient = new MockMicroCloudClient(
+    peerId,
+    {
+      signalingUrl: 'ws://mock',
+      onLog: () => {}, // Silent in simulation (can enable for debugging)
+      onOpen: () => {},
+      onClose: () => {},
+      // PeerBrowser will set up onFileRequest in setupWebRTCClient
+      onFileRequest: () => {}, // Placeholder - will be overwritten by PeerBrowser
+    },
+    peer.latency,
+    peer.bandwidth
+  );
+
+  // Create PeerBrowser with the mock client
+  // PeerBrowser will set up its own handlers in setupWebRTCClient
+  const weights = { a: 1.0, b: 1.0, c: 1.0 };
+  const peerBrowser = new PeerBrowser(
+    peerId,
+    peer.bandwidth,
+    weights,
+    60, // anchorThreshold
+    mockClient as any // Cast to MicroCloudClient interface - PeerBrowser will wire up handlers
+  );
+
+  // Store in registry for later use
+  peerBrowserRegistry.set(peerId, peerBrowser);
+
+  // Join the peer to a shared room for simulation
+  // All peers join the same room to enable P2P transfers
+  mockClient.join('simulation-room').catch(() => {});
+
   return peer;
 }
 
@@ -210,43 +249,34 @@ function findPeersWithFile(fileHash: string): PeerProperties[] {
 }
 
 /**
- * Simulate P2P file transfer between two peers
- * Calculates transfer time based on bandwidth and network latency
- * Includes a small chance of failure to simulate real-world conditions
- * @param fromPeer - Peer sending the file
- * @param toPeer - Peer receiving the file
- * @param fileHash - Hash of the file being transferred
- * @param fileSizeBytes - Size of file in bytes
- * @returns true if transfer succeeded, false otherwise
+ * Update PeerBrowser's connection to other peers
+ * Syncs peer index so peers can discover each other for transfers
+ * @param peerId - ID of peer to update
+ * @param peerBrowser - PeerBrowser instance to update
  */
-async function transferFileFromPeer(
-  fromPeer: PeerProperties,
-  toPeer: PeerProperties,
-  fileHash: string,
-  fileSizeBytes: number
-): Promise<boolean> {
-  // Transfer speed limited by the slower peer's bandwidth
-  const effectiveBandwidth = Math.min(fromPeer.bandwidth, toPeer.bandwidth); // Mbps
+async function updatePeerBrowserConnections(
+  peerId: string,
+  peerBrowser: PeerBrowser
+): Promise<void> {
+  // Get all other peers that have joined
+  for (const [otherPeerId, otherPeerProps] of peerRegistry.entries()) {
+    if (otherPeerId === peerId) continue;
 
-  // Calculate transfer time: (bytes * 8 bits/byte) / (Mbps * 1e6 bits/sec) * 1000 ms/sec
-  const transferTimeMs = ((fileSizeBytes * 8) / (effectiveBandwidth * 1000000)) * 1000;
+    const otherPeerBrowser = peerBrowserRegistry.get(otherPeerId);
+    if (!otherPeerBrowser) continue;
 
-  // Add network latency from both peers
-  const totalTime = transferTimeMs + fromPeer.latency + toPeer.latency;
+    // Ensure this peer knows about the other peer
+    // Check if already in peer index by getting manifest
+    try {
+      await otherPeerBrowser.getManifest();
+      const otherPeerInfo = otherPeerBrowser.getPeerInfo();
 
-  // Simulate transfer with small chance of failure (5% failure rate)
-  // Represents network issues, peer disconnections, etc.
-  const success = Math.random() > 0.05;
-
-  if (success) {
-    await new Promise((resolve) => setTimeout(resolve, Math.min(totalTime, 5000)));
-    registerFile(toPeer.id, fileHash);
-    fromPeer.uploadsServed++;
-    updatePeerRole(fromPeer);
-    return true;
+      // Add peer to index (PeerBrowser will handle duplicates)
+      peerBrowser.addPeer(otherPeerBrowser);
+    } catch (error) {
+      // Ignore errors - peer might not be ready yet
+    }
   }
-
-  return false;
 }
 
 /**
@@ -355,26 +385,37 @@ async function simulatePeer(
       peer.cacheHits++;
       peer.requestCount++;
     } else {
-      // Peer needs the file - try P2P first, then origin
-      const peersWithFile = findPeersWithFile(fileHash);
+      // Peer needs the file - try P2P via WebRTC first, then origin
+      const peerBrowser = peerBrowserRegistry.get(peer.id);
+      if (!peerBrowser) {
+        // Fallback if PeerBrowser not available
+        await requestFromOrigin(peer, config, fileHash);
+        return;
+      }
 
-      if (peersWithFile.length > 0 && peersWithFile[0].id !== peer.id) {
-        // Try to get file from best peer
-        const sourcePeer = peersWithFile[0];
-        const transferStart = Date.now();
+      // Update peer browser's knowledge of other peers
+      // Sync peer index with current state
+      await updatePeerBrowserConnections(peer.id, peerBrowser);
 
-        const success = await transferFileFromPeer(sourcePeer, peer, fileHash, fileSizeBytes);
+      // Try to get file using PeerBrowser (which uses WebRTC)
+      // Pass the actual file path for origin fallback
+      const transferStart = Date.now();
+      try {
+        const resource = await peerBrowser.requestResource(fileHash, config.targetFile);
 
-        transferEvents.push({
-          fromPeer: sourcePeer.id,
-          toPeer: peer.id,
-          fileHash,
-          timestamp: transferStart,
-          successful: success,
-        });
+        if (resource) {
+          // WebRTC transfer succeeded!
+          transferEvents.push({
+            fromPeer: 'peer', // Source peer determined by PeerBrowser
+            toPeer: peer.id,
+            fileHash,
+            timestamp: transferStart,
+            successful: true,
+          });
 
-        if (success) {
-          // P2P transfer succeeded
+          // Update peer stats
+          registerFile(peer.id, fileHash);
+
           await fetch(`${getServerUrl()}/api/cache-hit`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -383,11 +424,18 @@ async function simulatePeer(
           peer.cacheHits++;
           peer.requestCount++;
         } else {
-          // P2P transfer failed, try origin
+          // WebRTC failed, try origin
           await requestFromOrigin(peer, config, fileHash);
         }
-      } else {
-        // No peers have the file, request from origin
+      } catch (error) {
+        // WebRTC transfer error, try origin
+        transferEvents.push({
+          fromPeer: 'peer',
+          toPeer: peer.id,
+          fileHash,
+          timestamp: transferStart,
+          successful: false,
+        });
         await requestFromOrigin(peer, config, fileHash);
       }
     }
@@ -427,10 +475,29 @@ async function requestFromOrigin(
     const response = await fetch(targetUrl);
     if (response.ok) {
       const content = await response.text();
+      const mimeType = response.headers.get('content-type') || 'text/plain';
       const actualLatency = Date.now() - requestStart;
 
       // Register that peer now has the file (for future P2P transfers)
       registerFile(peer.id, fileHash);
+
+      // Also cache in PeerBrowser so it can serve to other peers
+      const peerBrowser = peerBrowserRegistry.get(peer.id);
+      if (peerBrowser) {
+        // Convert content to ArrayBuffer for PeerBrowser cache
+        const encoder = new TextEncoder();
+        const buffer = encoder.encode(content).buffer;
+
+        // Access private cache to store resource
+        const cache = (peerBrowser as any).cache;
+        if (cache) {
+          cache.set(fileHash, {
+            content: buffer,
+            mimeType: mimeType,
+            timestamp: Math.floor(Date.now() / 1000),
+          });
+        }
+      }
 
       // Report cache miss to server for statistics
       await fetch(`${getServerUrl()}/api/cache-miss`, {
@@ -492,6 +559,8 @@ export async function runFlashCrowdSimulation(
   // Important for running multiple simulations in sequence
   fileRegistry.clear();
   peerRegistry.clear();
+  peerBrowserRegistry.clear();
+  MockMicroCloudClient.clearAllRooms(); // Clear mock WebRTC message bus
 
   // Track simulation state
   const peers: PeerProperties[] = [];
@@ -645,7 +714,6 @@ export async function runFlashCrowdSimulation(
   if (churnEvents.length > 0 && churnEvents.length < peers.length) {
     const lastChurn = Math.max(...churnEvents);
     const recoveryWindow = 5000; // 5 seconds after churn to measure recovery
-    const recoveryEnd = lastChurn + recoveryWindow;
     const recoveryPeers = peers.filter((p) => p.requestCount > 0);
 
     // Estimate requests made during recovery window

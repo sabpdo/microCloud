@@ -1,26 +1,27 @@
 import { ManifestGenerator } from '../manifest-generator';
+import { MemoryCache } from '../memory-cache';
+import type { CachedResource } from '../manifest-generator';
 
 describe('ManifestGenerator', () => {
   const mockPeerId = 'peer-123';
-  const mockCache = new Map<string, any>();
+  let mockCache: MemoryCache<CachedResource>;
 
   // Sample test data
-  const testResource1 = {
+  const testResource1: CachedResource = {
     content: 'test content 1',
     mimeType: 'text/plain',
-    timestamp: Date.now() - 10000, // 10 seconds ago
-    cacheControl: 'max-age=3600',
+    timestamp: Math.floor((Date.now() - 10000) / 1000), // 10 seconds ago
   };
 
-  const testResource2 = {
-    content: new Uint8Array([1, 2, 3, 4, 5]),
+  const testResource2: CachedResource = {
+    content: new Uint8Array([1, 2, 3, 4, 5]).buffer,
     mimeType: 'application/octet-stream',
-    timestamp: Date.now() - 5000, // 5 seconds ago
-    cacheControl: 'no-cache',
+    timestamp: Math.floor((Date.now() - 5000) / 1000), // 5 seconds ago
   };
 
-  beforeAll(() => {
+  beforeEach(() => {
     // Setup mock cache
+    mockCache = new MemoryCache<CachedResource>();
     mockCache.set('test1', testResource1);
     mockCache.set('test2', testResource2);
   });
@@ -64,7 +65,7 @@ describe('ManifestGenerator', () => {
   });
 
   it('should handle empty cache', async () => {
-    const emptyCache = new Map();
+    const emptyCache = new MemoryCache<CachedResource>();
     const generator = new ManifestGenerator(mockPeerId, emptyCache);
     const manifest = await generator.generateManifest();
 

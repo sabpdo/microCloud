@@ -1,6 +1,4 @@
 import { Peer } from './Peer';
-import { MemoryCache } from './cache';
-import { CachedResource } from './cache/manifest-generator';
 
 describe('Peer', () => {
   let peer1: Peer;
@@ -123,16 +121,11 @@ describe('Peer', () => {
 
   describe('Resource Caching', () => {
     it('should cache resources locally', async () => {
-      const resource: CachedResource = {
-        content: 'test content',
-        mimeType: 'text/plain',
-        timestamp: Math.floor(Date.now() / 1000),
-      };
-
       const hash = 'test-hash-123';
       // Access private cache through grantChunk to test caching
+      // Resource not in cache initially - should return null
       const result = await peer1.grantChunk(hash);
-      expect(result).toBeNull(); // Not cached yet
+      expect(result).toBeNull();
     });
 
     it('should generate manifest with cached resources', async () => {

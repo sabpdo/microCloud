@@ -125,7 +125,6 @@ describe('Simulation', () => {
     });
 
     it('should track anchor nodes in flash crowd', async () => {
-
       (global.fetch as jest.Mock).mockResolvedValue({
         ok: true,
         text: async () => 'content',

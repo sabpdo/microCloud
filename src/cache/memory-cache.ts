@@ -35,15 +35,15 @@ export class MemoryCache<T = any> {
    */
   get(key: string): T | undefined {
     const entry = this.cache.get(key);
-    
+
     if (!entry) return undefined;
-    
+
     // Check if entry has expired
     if (entry.expiry && Date.now() > entry.expiry) {
       this.cache.delete(key);
       return undefined;
     }
-    
+
     return entry.value;
   }
 
@@ -54,7 +54,7 @@ export class MemoryCache<T = any> {
   entries(): Array<[string, T]> {
     const now = Date.now();
     const result: Array<[string, T]> = [];
-    
+
     for (const [key, entry] of this.cache.entries()) {
       // Skip expired entries
       if (entry.expiry && now > entry.expiry) {
@@ -63,7 +63,7 @@ export class MemoryCache<T = any> {
       }
       result.push([key, entry.value]);
     }
-    
+
     return result;
   }
 

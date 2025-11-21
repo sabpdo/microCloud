@@ -5,7 +5,7 @@ describe('Hash Utilities', () => {
   it('should generate correct SHA-256 hash for strings', async () => {
     const testString = 'hello world';
     const expectedHash = 'b94d27b9934d3e08a52e52d7da7dabfac484efe37a5380ee9088f7ace2efcde9';
-    
+
     const hash = await sha256(testString);
     expect(hash).toBe(expectedHash);
   });
@@ -34,15 +34,15 @@ describe('Hash Utilities', () => {
   // Test file hashing (mocked for both environments)
   it('should generate hashes for file-like objects', async () => {
     const content = 'test file content';
-    
+
     if (typeof window === 'undefined') {
       // Node.js environment - test with file path
       const fs = await import('fs/promises');
       const path = await import('path');
-      
+
       const tempFile = path.join(__dirname, 'test-file.txt');
       await fs.writeFile(tempFile, content);
-      
+
       try {
         const hash = await sha256File(tempFile);
         const expectedHash = await sha256(content);

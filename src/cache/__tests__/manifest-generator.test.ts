@@ -3,20 +3,20 @@ import { ManifestGenerator } from '../manifest-generator';
 describe('ManifestGenerator', () => {
   const mockPeerId = 'peer-123';
   const mockCache = new Map<string, any>();
-  
+
   // Sample test data
   const testResource1 = {
     content: 'test content 1',
     mimeType: 'text/plain',
     timestamp: Date.now() - 10000, // 10 seconds ago
-    cacheControl: 'max-age=3600'
+    cacheControl: 'max-age=3600',
   };
-  
+
   const testResource2 = {
     content: new Uint8Array([1, 2, 3, 4, 5]),
     mimeType: 'application/octet-stream',
     timestamp: Date.now() - 5000, // 5 seconds ago
-    cacheControl: 'no-cache'
+    cacheControl: 'no-cache',
   };
 
   beforeAll(() => {
@@ -34,17 +34,17 @@ describe('ManifestGenerator', () => {
     expect(manifest).toHaveProperty('generatedAt');
     expect(manifest).toHaveProperty('resources');
     expect(Array.isArray(manifest.resources)).toBe(true);
-    
+
     // Should include both test resources
     expect(manifest.resources.length).toBe(2);
-    
+
     // Check resource 1
     const res1 = manifest.resources[0];
     expect(res1).toHaveProperty('resourceHash');
     expect(res1).toHaveProperty('contentLength');
     expect(res1).toHaveProperty('mimeType', 'text/plain');
     expect(res1).toHaveProperty('timestamp');
-    
+
     // Check resource 2
     const res2 = manifest.resources[1];
     expect(res2).toHaveProperty('resourceHash');
@@ -56,7 +56,7 @@ describe('ManifestGenerator', () => {
   it('should generate valid JSON string', async () => {
     const generator = new ManifestGenerator(mockPeerId, mockCache);
     const manifestString = await generator.generateManifestString();
-    
+
     // Should be valid JSON
     const manifest = JSON.parse(manifestString);
     expect(manifest).toHaveProperty('peerId', mockPeerId);
@@ -67,7 +67,7 @@ describe('ManifestGenerator', () => {
     const emptyCache = new Map();
     const generator = new ManifestGenerator(mockPeerId, emptyCache);
     const manifest = await generator.generateManifest();
-    
+
     expect(manifest.resources).toHaveLength(0);
   });
 });

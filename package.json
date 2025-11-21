@@ -21,7 +21,9 @@
     "typecheck": "tsc --noEmit",
     "preview": "vite preview",
     "test": "jest",
-    "test:watch": "jest --watch"
+    "test:watch": "jest --watch",
+    "format": "prettier --write \"**/*.{ts,tsx,js,jsx,json,md}\"",
+    "format:check": "prettier --check \"**/*.{ts,tsx,js,jsx,json,md}\""
   },
   "keywords": [
     "p2p",
@@ -53,6 +55,7 @@
     "concurrently": "^8.2.2",
     "esbuild": "^0.21.5",
     "jest": "^30.2.0",
+    "prettier": "^3.6.2",
     "ts-jest": "^29.4.5",
     "ts-node": "^10.9.2",
     "tsx": "^4.7.0",

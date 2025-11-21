@@ -44,13 +44,13 @@ describe('MemoryCache', () => {
   it('should respect TTL', () => {
     jest.useFakeTimers();
     const ttl = 1000; // 1 second
-    
+
     cache.set(testKey, testValue, ttl);
-    
+
     // Before TTL expires
     jest.advanceTimersByTime(500);
     expect(cache.get(testKey)).toEqual(testValue);
-    
+
     // After TTL expires
     jest.advanceTimersByTime(600);
     expect(cache.get(testKey)).toBeUndefined();
@@ -59,7 +59,7 @@ describe('MemoryCache', () => {
   it('should return all keys', () => {
     cache.set('key1', 'value1');
     cache.set('key2', 'value2');
-    
+
     const keys = cache.keys();
     expect(keys).toContain('key1');
     expect(keys).toContain('key2');

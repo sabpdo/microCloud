@@ -16,13 +16,14 @@ export async function sha256(data: string | Buffer | Uint8Array): Promise<string
     hash.update(data);
     return hash.digest('hex');
   }
-  
+
   // In the browser, use the Web Crypto API
-  const buffer = typeof data === 'string' 
-    ? new TextEncoder().encode(data) 
-    : data instanceof Uint8Array 
-      ? data
-      : new Uint8Array(data);
+  const buffer =
+    typeof data === 'string'
+      ? new TextEncoder().encode(data)
+      : data instanceof Uint8Array
+        ? data
+        : new Uint8Array(data);
 
   const hashBuffer = await crypto.subtle.digest('SHA-256', buffer);
   return bufferToHex(hashBuffer);
@@ -40,7 +41,7 @@ export async function sha256File(file: File | Blob): Promise<string> {
     const buffer = await fs.readFile(file as unknown as string);
     return sha256(buffer);
   }
-  
+
   // Browser environment: use FileReader
   const arrayBuffer = await file.arrayBuffer();
   return sha256(new Uint8Array(arrayBuffer));
@@ -64,15 +65,16 @@ export async function sha256Object<T extends object>(obj: T): Promise<string> {
  */
 function bufferToHex(buffer: ArrayBuffer): string {
   return Array.from(new Uint8Array(buffer))
-    .map(b => b.toString(16).padStart(2, '0'))
+    .map((b) => b.toString(16).padStart(2, '0'))
     .join('');
 }
 
 // Export a sync version for Node.js environments
-export const sha256Sync = typeof window === 'undefined' 
-  ? (data: string | Buffer | Uint8Array): string => {
-      const hash = createHash('sha256');
-      hash.update(data);
-      return hash.digest('hex');
-    }
-  : null;
+export const sha256Sync =
+  typeof window === 'undefined'
+    ? (data: string | Buffer | Uint8Array): string => {
+        const hash = createHash('sha256');
+        hash.update(data);
+        return hash.digest('hex');
+      }
+    : null;

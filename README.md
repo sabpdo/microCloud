@@ -109,13 +109,11 @@ The dashboard is built with React and TypeScript. To use it:
 The dashboard has two tabs:
 
 1. **Configuration Tab** - Simple content caching policy selection
-
    - Choose which content types to prioritize for caching (Video, Images, JSON/Data, Text)
    - Changes are saved automatically to browser localStorage
    - Designed to be simple and user-friendly (Net Neutrality principle)
 
 2. **Performance Metrics Tab** - Real-time cache performance visualization
-
    - Cache hit ratio visualization (ring chart)
    - Request statistics and data served
    - Auto-refreshing metrics with pause/resume controls
@@ -186,6 +184,7 @@ The WebRTC client enables peer-to-peer connections between browser instances for
    The server will start on `http://localhost:3001` (or the port specified by `PORT` environment variable).
 
    You should see:
+
    ```
    µCloud signaling server on http://localhost:3001
    ```
@@ -205,17 +204,17 @@ The WebRTC client enables peer-to-peer connections between browser instances for
    Open `client/index.html` in your browser. You can:
    - Open it directly: `file:///path/to/microCloud/client/index.html`
    - Or serve it with a local server (recommended):
+
      ```bash
      # Using Python
      cd client && python3 -m http.server 8080
      # Then open http://localhost:8080
-     
+
      # Or using Node.js http-server
      npx http-server client -p 8080
      ```
 
 4. **Connect Multiple Peers**
-
    - Open multiple browser windows/tabs (or different browsers)
    - Each instance should load `client/index.html`
    - Enter the same room name (default: "demo") in the Room input field
@@ -227,7 +226,6 @@ The WebRTC client enables peer-to-peer connections between browser instances for
      - ICE candidate exchanges and connection state changes
 
 5. **Verify Connections**
-
    - Check the log output in each browser window
    - Look for messages like:
      - `"peer connection created"`
@@ -256,8 +254,6 @@ The WebRTC client enables peer-to-peer connections between browser instances for
 - **Heartbeats not working**: Check browser console for WebRTC errors; some networks/firewalls may block WebRTC
 - **Client won't load**: Ensure `npm run build:client` completed successfully and `client/dist/webrtc.js` exists
 
-
 ## License
 
 MIT
-

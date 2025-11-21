@@ -8,16 +8,70 @@ export type MicroCloudClientOptions = {
   onOpen?: () => void;
   onClose?: () => void;
   onLog?: (...args: any[]) => void;
+  onFileRequest?: (resourceHash: string, requestId: string) => void;
+  onManifestRequest?: () => void;
 };
 
 const HEARTBEAT_INTERVAL_MS = 5000;
 const HEARTBEAT_TIMEOUT_MS = 15000;
+
+const CHUNK_SIZE = 16 * 1024; // 16KB chunks (DataChannel message size limit)
+
+interface FileRequest {
+  type: 'file-request';
+  resourceHash: string;
+  requestId: string;
+}
+
+interface FileResponse {
+  type: 'file-response';
+  requestId: string;
+  resourceHash: string;
+  success: boolean;
+  mimeType?: string;
+  totalChunks?: number;
+  contentLength?: number;
+}
+
+interface FileChunk {
+  type: 'file-chunk';
+  requestId: string;
+  chunkIndex: number;
+  totalChunks: number;
+  data: string; // Base64 encoded
+}
+
+interface FileTransferComplete {
+  type: 'file-complete';
+  requestId: string;
+  resourceHash: string;
+}
+
+interface ManifestRequest {
+  type: 'manifest-request';
+}
+
+interface ManifestResponse {
+  type: 'manifest-response';
+  manifest: any;
+}
+
+export type PeerMessage =
+  | FileRequest
+  | FileResponse
+  | FileChunk
+  | FileTransferComplete
+  | ManifestRequest
+  | ManifestResponse
+  | { type: 'heartbeat'; t: number };
 
 export class MicroCloudClient {
   private signalingUrl: string;
   private onOpen: () => void;
   private onClose: () => void;
   private log: (...args: any[]) => void;
+  public onFileRequest: (resourceHash: string, requestId: string) => void;
+  public onManifestRequest: () => void;
 
   private ws: WebSocket | null = null;
   private pc: RTCPeerConnection | null = null;
@@ -28,11 +82,25 @@ export class MicroCloudClient {
   private isInitiator = false;
   private negotiateTimer: number | null = null;
 
+  // File transfer tracking
+  private pendingRequests = new Map<
+    string,
+    {
+      resolve: (data: ArrayBuffer) => void;
+      reject: (error: Error) => void;
+      chunks: Map<number, Uint8Array>;
+      totalChunks: number;
+      timeout: number;
+    }
+  >();
+
   constructor(options: MicroCloudClientOptions) {
     this.signalingUrl = options.signalingUrl;
     this.onOpen = options.onOpen || (() => {});
     this.onClose = options.onClose || (() => {});
     this.log = options.onLog || (() => {});
+    this.onFileRequest = options.onFileRequest || (() => {});
+    this.onManifestRequest = options.onManifestRequest || (() => {});
   }
 
   async join(roomId?: string) {
@@ -134,7 +202,7 @@ export class MicroCloudClient {
     }
 
     const pc = new RTCPeerConnection({
-      iceServers: [{ urls: 'stun:stun.l.google.com:19302' }]
+      iceServers: [{ urls: 'stun:stun.l.google.com:19302' }],
     });
     this.pc = pc;
     this.log('peer connection created, initiator:', initiator);
@@ -144,7 +212,7 @@ export class MicroCloudClient {
         this.log('ice candidate');
         this.sendSignal({
           type: 'signal',
-          payload: { kind: 'ice-candidate', candidate: ev.candidate }
+          payload: { kind: 'ice-candidate', candidate: ev.candidate },
         });
       }
     };
@@ -205,18 +273,111 @@ export class MicroCloudClient {
     };
 
     channel.onmessage = (ev) => {
-      const text = typeof ev.data === 'string' ? ev.data : String(ev.data);
-      let msg: any;
-      try {
-        msg = JSON.parse(text);
-      } catch {
-        return;
-      }
-      if (msg && msg.type === 'heartbeat') {
+      this.handleDataChannelMessage(ev);
+    };
+  }
+
+  private handleDataChannelMessage(ev: MessageEvent) {
+    const text = typeof ev.data === 'string' ? ev.data : String(ev.data);
+    let msg: PeerMessage;
+    try {
+      msg = JSON.parse(text);
+    } catch {
+      return;
+    }
+
+    if (!msg || typeof msg.type !== 'string') return;
+
+    switch (msg.type) {
+      case 'heartbeat': {
         this.lastHeartbeatAt = Date.now();
         this.log('heartbeat received');
+        break;
       }
-    };
+      case 'file-request': {
+        this.log('file request received:', msg.resourceHash);
+        this.onFileRequest(msg.resourceHash, msg.requestId);
+        break;
+      }
+      case 'file-response': {
+        this.log('file response received:', msg.success ? 'success' : 'failed');
+        if (!msg.success) {
+          const pending = this.pendingRequests.get(msg.requestId);
+          if (pending) {
+            clearTimeout(pending.timeout);
+            this.pendingRequests.delete(msg.requestId);
+            pending.reject(new Error('Peer does not have requested file'));
+          }
+        } else if (msg.totalChunks !== undefined) {
+          // Initialize chunk tracking
+          const pending = this.pendingRequests.get(msg.requestId);
+          if (pending) {
+            pending.totalChunks = msg.totalChunks;
+            if (pending.totalChunks === 0) {
+              // Empty file
+              clearTimeout(pending.timeout);
+              this.pendingRequests.delete(msg.requestId);
+              pending.resolve(new ArrayBuffer(0));
+            }
+          }
+        }
+        break;
+      }
+      case 'file-chunk': {
+        const pending = this.pendingRequests.get(msg.requestId);
+        if (!pending) {
+          this.log('received chunk for unknown request:', msg.requestId);
+          return;
+        }
+
+        // Decode base64 chunk
+        try {
+          const binaryString = atob(msg.data);
+          const bytes = new Uint8Array(binaryString.length);
+          for (let i = 0; i < binaryString.length; i++) {
+            bytes[i] = binaryString.charCodeAt(i);
+          }
+          pending.chunks.set(msg.chunkIndex, bytes);
+          this.log(`received chunk ${msg.chunkIndex + 1}/${msg.totalChunks}`);
+
+          // Check if all chunks received
+          if (pending.chunks.size === pending.totalChunks) {
+            clearTimeout(pending.timeout);
+
+            // Reassemble file
+            const chunks = Array.from(
+              { length: pending.totalChunks },
+              (_, i) => pending.chunks.get(i)!
+            );
+            const totalLength = chunks.reduce((sum, chunk) => sum + chunk.length, 0);
+            const result = new Uint8Array(totalLength);
+            let offset = 0;
+            for (const chunk of chunks) {
+              result.set(chunk, offset);
+              offset += chunk.length;
+            }
+
+            this.pendingRequests.delete(msg.requestId);
+            pending.resolve(result.buffer);
+            this.log('file transfer complete');
+          }
+        } catch (error) {
+          clearTimeout(pending.timeout);
+          this.pendingRequests.delete(msg.requestId);
+          pending.reject(new Error('Failed to decode chunk'));
+        }
+        break;
+      }
+      case 'file-complete': {
+        // Acknowledgment, can be used for cleanup
+        this.log('file transfer acknowledged');
+        break;
+      }
+      case 'manifest-request': {
+        this.onManifestRequest();
+        break;
+      }
+    }
   }
 
   private async createOffer() {
@@ -226,7 +387,7 @@ export class MicroCloudClient {
     await this.pc.setLocalDescription(offer);
     this.sendSignal({
       type: 'signal',
-      payload: { kind: 'sdp-offer', sdp: this.pc.localDescription }
+      payload: { kind: 'sdp-offer', sdp: this.pc.localDescription },
     });
   }
 
@@ -243,7 +404,7 @@ export class MicroCloudClient {
         await this.pc!.setLocalDescription(answer);
         this.sendSignal({
           type: 'signal',
-          payload: { kind: 'sdp-answer', sdp: this.pc!.localDescription }
+          payload: { kind: 'sdp-answer', sdp: this.pc!.localDescription },
         });
         break;
       }
@@ -304,9 +465,193 @@ export class MicroCloudClient {
     }
   }
 
+  // Public getters
+  isDataChannelReady(): boolean {
+    return this.dc !== null && this.dc.readyState === 'open';
+  }
+
+  getDataChannel(): RTCDataChannel | null {
+    return this.dc;
+  }
+
+  // File transfer methods
+  async requestFile(resourceHash: string, timeout: number = 30000): Promise<ArrayBuffer> {
+    if (!this.isDataChannelReady()) {
+      throw new Error('DataChannel not open');
+    }
+
+    const requestId = `${Date.now()}-${Math.random().toString(36).substring(7)}`;
+
+    return new Promise((resolve, reject) => {
+      const timeoutId = window.setTimeout(() => {
+        this.pendingRequests.delete(requestId);
+        reject(new Error('File request timeout'));
+      }, timeout);
+
+      this.pendingRequests.set(requestId, {
+        resolve,
+        reject,
+        chunks: new Map(),
+        totalChunks: 0,
+        timeout: timeoutId,
+      });
+
+      const request: FileRequest = {
+        type: 'file-request',
+        resourceHash,
+        requestId,
+      };
+
+      try {
+        this.dc.send(JSON.stringify(request));
+        this.log('sent file request:', resourceHash);
+      } catch (error) {
+        clearTimeout(timeoutId);
+        this.pendingRequests.delete(requestId);
+        reject(error);
+      }
+    });
+  }
+
+  sendFile(
+    resourceHash: string,
+    content: ArrayBuffer | string,
+    mimeType: string,
+    requestId: string
+  ): void {
+    if (!this.isDataChannelReady()) {
+      this.log('cannot send file: DataChannel not open');
+      return;
+    }
+
+    try {
+      // Convert string to ArrayBuffer if needed
+      let buffer: ArrayBuffer;
+      if (typeof content === 'string') {
+        const encoder = new TextEncoder();
+        buffer = encoder.encode(content).buffer;
+      } else {
+        buffer = content;
+      }
+
+      const bytes = new Uint8Array(buffer);
+      const totalChunks = Math.ceil(bytes.length / CHUNK_SIZE);
+
+      if (totalChunks === 0) {
+        // Empty file
+        const response: FileResponse = {
+          type: 'file-response',
+          requestId,
+          resourceHash,
+          success: true,
+          mimeType,
+          totalChunks: 0,
+          contentLength: 0,
+        };
+        this.dc.send(JSON.stringify(response));
+        return;
+      }
+
+      // Send response with metadata
+      const response: FileResponse = {
+        type: 'file-response',
+        requestId,
+        resourceHash,
+        success: true,
+        mimeType,
+        totalChunks,
+        contentLength: bytes.length,
+      };
+      this.dc.send(JSON.stringify(response));
+
+      // Send chunks
+      for (let i = 0; i < totalChunks; i++) {
+        const start = i * CHUNK_SIZE;
+        const end = Math.min(start + CHUNK_SIZE, bytes.length);
+        const chunk = bytes.subarray(start, end);
+
+        // Encode as base64
+        const binaryString = String.fromCharCode(...chunk);
+        const base64 = btoa(binaryString);
+
+        const chunkMsg: FileChunk = {
+          type: 'file-chunk',
+          requestId,
+          chunkIndex: i,
+          totalChunks,
+          data: base64,
+        };
+
+        this.dc.send(JSON.stringify(chunkMsg));
+      }
+
+      // Send completion message
+      const complete: FileTransferComplete = {
+        type: 'file-complete',
+        requestId,
+        resourceHash,
+      };
+      this.dc.send(JSON.stringify(complete));
+
+      this.log(`sent file ${resourceHash} (${totalChunks} chunks)`);
+    } catch (error) {
+      this.log('error sending file:', error);
+      const errorResponse: FileResponse = {
+        type: 'file-response',
+        requestId,
+        resourceHash,
+        success: false,
+      };
+      this.dc.send(JSON.stringify(errorResponse));
+    }
+  }
+
+  sendManifest(manifest: any): void {
+    if (!this.isDataChannelReady()) {
+      return;
+    }
+
+    const msg: ManifestResponse = {
+      type: 'manifest-response',
+      manifest,
+    };
+
+    try {
+      this.dc.send(JSON.stringify(msg));
+      this.log('sent manifest');
+    } catch (error) {
+      this.log('error sending manifest:', error);
+    }
+  }
+
+  requestManifest(): void {
+    if (!this.isDataChannelReady()) {
+      return;
+    }
+
+    const msg: ManifestRequest = {
+      type: 'manifest-request',
+    };
+
+    try {
+      this.dc.send(JSON.stringify(msg));
+      this.log('requested manifest');
+    } catch (error) {
+      this.log('error requesting manifest:', error);
+    }
+  }
+
   private teardown() {
     this.stopHeartbeat();
     this.clearNegotiateTimer();
+
+    // Reject all pending requests
+    for (const pending of this.pendingRequests.values()) {
+      clearTimeout(pending.timeout);
+      pending.reject(new Error('Connection closed'));
+    }
+    this.pendingRequests.clear();
+
     try {
       this.dc && this.dc.close();
     } catch {}

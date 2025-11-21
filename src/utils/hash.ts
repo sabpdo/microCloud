@@ -18,12 +18,31 @@ export async function sha256(data: string | Buffer | Uint8Array): Promise<string
   }
 
   // In the browser, use the Web Crypto API
-  const buffer =
-    typeof data === 'string'
-      ? new TextEncoder().encode(data)
-      : data instanceof Uint8Array
-        ? data
-        : new Uint8Array(data);
+  // Convert input to ArrayBufferView for crypto.subtle.digest
+  let buffer: ArrayBufferView;
+  if (typeof data === 'string') {
+    buffer = new TextEncoder().encode(data);
+  } else if (data instanceof Uint8Array) {
+    buffer = data;
+  } else if (data instanceof ArrayBuffer) {
+    buffer = new Uint8Array(data);
+  } else {
+    // Node.js Buffer or other ArrayBufferView types
+    // Check if Buffer is available (Node.js environment)
+    if (typeof Buffer !== 'undefined') {
+      // Try to detect Node.js Buffer
+      const nodeBuffer = data as any;
+      if (nodeBuffer && typeof nodeBuffer.buffer === 'object' && typeof nodeBuffer.byteOffset === 'number') {
+        buffer = new Uint8Array(nodeBuffer.buffer, nodeBuffer.byteOffset, nodeBuffer.byteLength);
+      } else {
+        // Fallback: wrap as Uint8Array
+        buffer = new Uint8Array(data as ArrayBuffer);
+      }
+    } else {
+      // Fallback: wrap as Uint8Array
+      buffer = new Uint8Array(data as ArrayBuffer);
+    }
+  }
 
   const hashBuffer = await crypto.subtle.digest('SHA-256', buffer);
   return bufferToHex(hashBuffer);

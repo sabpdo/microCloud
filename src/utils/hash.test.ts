@@ -44,7 +44,7 @@ describe('Hash Utilities', () => {
       await fs.writeFile(tempFile, content);
 
       try {
-        const hash = await sha256File(tempFile);
+        const hash = await sha256File(tempFile as unknown as File);
         const expectedHash = await sha256(content);
         expect(hash).toBe(expectedHash);
       } finally {
@@ -63,7 +63,7 @@ describe('Hash Utilities', () => {
   if (sha256Sync) {
     it('should support synchronous hashing in Node.js', () => {
       const testString = 'test sync';
-      const hash = sha256Sync(testString);
+      const hash = sha256Sync!(testString); // Non-null assertion - checked above
       expect(hash).toMatch(/^[a-f0-9]{64}$/); // Should be a valid SHA-256 hash
     });
   }

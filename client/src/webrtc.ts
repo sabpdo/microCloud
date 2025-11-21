@@ -79,7 +79,6 @@ export class MicroCloudClient {
   private roomId: string = 'default';
   private heartbeatTimer: number | null = null;
   private lastHeartbeatAt = 0;
-  private isInitiator = false;
   private negotiateTimer: number | null = null;
 
   // File transfer tracking
@@ -154,7 +153,6 @@ export class MicroCloudClient {
     switch (msg.type) {
       case 'joined': {
         this.log('joined room', msg.roomId, 'peers:', msg.peers);
-        this.isInitiator = false;
         await this.ensurePeerConnection(false);
         // Fallback: initiate if no offer received within 3s
         this.clearNegotiateTimer();
@@ -164,7 +162,6 @@ export class MicroCloudClient {
           const dcOpen = this.dc && this.dc.readyState === 'open';
           if (!hasRemote && !dcOpen) {
             this.log('no offer received, initiating');
-            this.isInitiator = true;
             await this.ensurePeerConnection(true);
             await this.createOffer();
           }
@@ -173,7 +170,6 @@ export class MicroCloudClient {
       }
       case 'peer-joined': {
         this.log('peer joined, initiating connection');
-        this.isInitiator = true;
         await this.ensurePeerConnection(true);
         this.clearNegotiateTimer();
         await this.createOffer();
@@ -503,6 +499,12 @@ export class MicroCloudClient {
       };
 
       try {
+        if (!this.dc) {
+          clearTimeout(timeoutId);
+          this.pendingRequests.delete(requestId);
+          reject(new Error('DataChannel not available'));
+          return;
+        }
         this.dc.send(JSON.stringify(request));
         this.log('sent file request:', resourceHash);
       } catch (error) {
@@ -536,6 +538,11 @@ export class MicroCloudClient {
 
       const bytes = new Uint8Array(buffer);
       const totalChunks = Math.ceil(bytes.length / CHUNK_SIZE);
+
+      if (!this.dc) {
+        this.log('cannot send file: DataChannel is null');
+        return;
+      }
 
       if (totalChunks === 0) {
         // Empty file
@@ -582,32 +589,37 @@ export class MicroCloudClient {
           data: base64,
         };
 
-        this.dc.send(JSON.stringify(chunkMsg));
+        if (this.dc) {
+          this.dc.send(JSON.stringify(chunkMsg));
+        }
       }
 
       // Send completion message
-      const complete: FileTransferComplete = {
-        type: 'file-complete',
-        requestId,
-        resourceHash,
-      };
-      this.dc.send(JSON.stringify(complete));
-
-      this.log(`sent file ${resourceHash} (${totalChunks} chunks)`);
+      if (this.dc) {
+        const complete: FileTransferComplete = {
+          type: 'file-complete',
+          requestId,
+          resourceHash,
+        };
+        this.dc.send(JSON.stringify(complete));
+        this.log(`sent file ${resourceHash} (${totalChunks} chunks)`);
+      }
     } catch (error) {
       this.log('error sending file:', error);
-      const errorResponse: FileResponse = {
-        type: 'file-response',
-        requestId,
-        resourceHash,
-        success: false,
-      };
-      this.dc.send(JSON.stringify(errorResponse));
+      if (this.dc) {
+        const errorResponse: FileResponse = {
+          type: 'file-response',
+          requestId,
+          resourceHash,
+          success: false,
+        };
+        this.dc.send(JSON.stringify(errorResponse));
+      }
     }
   }
 
   sendManifest(manifest: any): void {
-    if (!this.isDataChannelReady()) {
+    if (!this.isDataChannelReady() || !this.dc) {
       return;
     }
 
@@ -625,7 +637,7 @@ export class MicroCloudClient {
   }
 
   requestManifest(): void {
-    if (!this.isDataChannelReady()) {
+    if (!this.isDataChannelReady() || !this.dc) {
       return;
     }
 

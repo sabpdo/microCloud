@@ -24,6 +24,13 @@ dist/
 dist-server/
 build/
 
+# Compiled JavaScript files (generated from TypeScript)
+*.js
+!jest.config.js
+!vite.config.js
+!scripts/**/*.js
+!public/**/*.js
+
 # Test coverage
 coverage/
 

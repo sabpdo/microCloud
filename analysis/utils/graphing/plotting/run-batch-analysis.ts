@@ -4,7 +4,7 @@
  * Runs multiple simulations with different parameters and analyzes results
  */
 
-import { runFlashCrowdSimulation, SimulationConfig } from '../../../server/simulation';
+import { runFlashCrowdSimulation, SimulationConfig } from '../../../../server/simulation';
 import { analyzeMultipleResults, SimulationResult, printSummary } from './analyze-simulation';
 import fs from 'fs';
 import path from 'path';

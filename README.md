@@ -12,28 +12,49 @@ A client-layer, peer-assisted caching system that transforms nearby user devices
 
 ```
 microCloud/
-├── server/              # Toy HTTP origin server
-│   └── server.ts       # Express server serving static files (TypeScript)
-├── public/             # Static files served by origin server
-│   ├── demo.html       # Sample demo page
-│   ├── sample.txt      # Sample text file
-│   ├── sample.json     # Sample JSON file
-│   └── style.css       # Styles for demo page
-├── src/                # React TypeScript dashboard source
-│   ├── cache/           # Caching system implementation
-│   │   ├── index.ts     # Cache module exports
-│   │   └── memory-cache.ts  # In-memory cache
-│   ├── components/     # React components
-│   ├── hooks/          # Custom React hooks
-│   ├── App.tsx         # Main app component
-│   ├── main.tsx        # React entry point
-│   ├── types.ts        # TypeScript type definitions
-│   └── index.css       # Global styles
-├── index.html          # Vite entry point for React app
-├── vite.config.ts      # Vite configuration
-├── tsconfig.json       # TypeScript config for React app
-├── tsconfig.server.json # TypeScript config for server
-└── package.json        # Node.js dependencies
+├── server/                    # HTTP origin server and simulation
+│   ├── server.ts             # Express server with WebSocket signaling
+│   ├── simulation.ts         # Flash crowd simulation logic
+│   └── __tests__/            # Server tests
+├── src/                       # React TypeScript dashboard
+│   ├── cache/                # Caching system implementation
+│   │   ├── index.ts          # Cache module exports
+│   │   ├── memory-cache.ts   # In-memory cache
+│   │   ├── manifest-generator.ts  # Cache manifest generation
+│   │   ├── origin-fallback.ts     # Origin server fallback
+│   │   └── __tests__/        # Cache tests
+│   ├── components/           # React components
+│   │   ├── ContentPolicies.tsx    # Policy configuration UI
+│   │   ├── MetricsDashboard.tsx   # Performance metrics UI
+│   │   └── SimulationControl.tsx  # Simulation control UI
+│   ├── hooks/                # Custom React hooks
+│   ├── Peer.ts               # Peer implementation
+│   ├── PeerBrowser.ts        # Browser-based peer with WebRTC
+│   ├── App.tsx               # Main app component
+│   ├── main.tsx              # React entry point
+│   └── types.ts              # TypeScript type definitions
+├── client/                    # Standalone WebRTC client
+│   ├── src/
+│   │   └── webrtc.ts         # WebRTC client implementation
+│   ├── dist/                 # Compiled client bundle
+│   └── index.html            # Client test page
+├── analysis/                  # Analysis and visualization tools
+│   ├── analyze-multi-run.py  # Multi-run analysis (Python)
+│   ├── analyze-simulation.ts # Simulation analysis (TypeScript)
+│   ├── plot-metrics.py       # Metrics plotting (Python)
+│   ├── run-batch-analysis.ts # Batch simulation runner
+│   └── requirements.txt      # Python dependencies
+├── public/                    # Static files served by origin server
+│   ├── sample.txt            # Sample text file
+│   ├── sample.json           # Sample JSON file
+│   └── style.css             # Styles
+├── scripts/                   # Utility scripts
+├── index.html                 # Vite entry point
+├── vite.config.ts            # Vite configuration
+├── tsconfig.json             # TypeScript config (React app)
+├── tsconfig.server.json      # TypeScript config (server)
+├── jest.config.js            # Jest test configuration
+└── package.json              # Node.js dependencies
 ```
 
 ## Getting Started
@@ -253,6 +274,14 @@ The WebRTC client enables peer-to-peer connections between browser instances for
 - **No peers visible**: Make sure all clients join the same room name
 - **Heartbeats not working**: Check browser console for WebRTC errors; some networks/firewalls may block WebRTC
 - **Client won't load**: Ensure `npm run build:client` completed successfully and `client/dist/webrtc.js` exists
+
+## Documentation
+
+For detailed information on specific topics:
+
+- **[TESTING.md](TESTING.md)**: Comprehensive testing guide, batch analysis, and visualization
+- **[SIMULATION_WALKTHROUGH.md](SIMULATION_WALKTHROUGH.md)**: Step-by-step simulation experiments
+- **[WEBRTC_USAGE.md](WEBRTC_USAGE.md)**: WebRTC file transfer API and integration details
 
 ## License
 

@@ -274,7 +274,7 @@ export class PeerBrowser {
 
   public updateConnections(): void {
     const now = Date.now();
-    const TIMEOUT_THRESHOLD = 3000;
+    const TIMEOUT_THRESHOLD = 30000;
 
     for (const [peerID, info] of this.peerIndex.entries()) {
       if (now - info.lastSeen * 1000 > TIMEOUT_THRESHOLD) {

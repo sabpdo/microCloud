@@ -282,19 +282,36 @@ app.post('/api/cache-miss', (req: Request, res: Response) => {
 // Get list of available files for simulation
 app.get('/api/files', (req: Request, res: Response) => {
   try {
-    const files: string[] = [];
-    const filePaths = ['/sample.txt', '/sample.json', '/demo.html', '/style.css'];
+    const files: Array<{ path: string; size: number; chunks: number }> = [];
+    const CHUNK_SIZE = 16 * 1024; // 16KB chunks
+    
+    // Check all .txt and .json files in public directory
+    if (fs.existsSync(STATIC_DIR)) {
+      const fileList = fs.readdirSync(STATIC_DIR);
+      fileList.forEach((fileName) => {
+        if (fileName.endsWith('.txt') || fileName.endsWith('.json')) {
+          const filePath = `/${fileName}`;
+          const filePathOnDisk = path.join(STATIC_DIR, fileName);
+          try {
+            const stats = fs.statSync(filePathOnDisk);
+            const chunks = Math.ceil(stats.size / CHUNK_SIZE);
+            files.push({
+              path: filePath,
+              size: stats.size,
+              chunks: chunks,
+            });
+          } catch (err) {
+            // Skip files we can't read
+            console.warn(`Could not read file ${fileName}:`, err);
+          }
+        }
+      });
+    }
 
-    // Check which files actually exist
-    filePaths.forEach((filePath) => {
-      const fileName = filePath.substring(1); // Remove leading /
-      const filePathOnDisk = path.join(STATIC_DIR, fileName);
-      if (fs.existsSync(filePathOnDisk)) {
-        files.push(filePath);
-      }
-    });
+    // Sort by size (smallest first)
+    files.sort((a, b) => a.size - b.size);
 
-    res.json({ files });
+    res.json({ files: files.map(f => f.path), fileInfo: files });
   } catch (error) {
     console.error('Error listing files:', error);
     res.status(500).json({ error: 'Failed to list files' });
@@ -341,21 +358,38 @@ app.post('/api/simulate', async (req: Request, res: Response) => {
       targetFile,
       duration,
       requestInterval,
+      requestProbability,
       churnRate,
+      rejoinRate,
       flashCrowd,
       joinRate,
       anchorSignalingLatency,
+      churnMode,
+      deviceHeterogeneity,
+      fileSizeBytes,
+      baselineMode,
     } = req.body;
 
     const config = {
       numPeers: numPeers || 20,
       targetFile: targetFile || '/sample.txt',
       duration: duration || 30, // seconds
-      requestInterval: requestInterval || 100, // ms
+      requestInterval: requestInterval, // DEPRECATED: kept for backward compatibility
+      requestProbability: requestProbability !== undefined ? requestProbability : (requestInterval ? Math.min(1.0, 1000 / requestInterval) : 0.5),
       churnRate: churnRate || 0,
+      rejoinRate: rejoinRate,
       flashCrowd: flashCrowd !== undefined ? flashCrowd : false,
       joinRate: joinRate || 2, // peers per second
       anchorSignalingLatency: anchorSignalingLatency || 100, // ms
+      churnMode: churnMode || 'mixed',
+      deviceHeterogeneity: deviceHeterogeneity || {
+        latencyMin: 10,
+        latencyMax: 250,
+        bandwidthMin: 10,
+        bandwidthMax: 100,
+      },
+      fileSizeBytes: fileSizeBytes,
+      baselineMode: baselineMode || false,
     };
 
     // Import and run simulation
@@ -407,6 +441,12 @@ if (fs.existsSync(REACT_BUILD_DIR)) {
 // These are served with explicit paths like /sample.txt, /sample.json
 app.use('/sample.txt', express.static(path.join(STATIC_DIR, 'sample.txt')));
 app.use('/sample.json', express.static(path.join(STATIC_DIR, 'sample.json')));
+// Serve the larger test files for chunking tests
+app.use('/sample-50kb.txt', express.static(path.join(STATIC_DIR, 'sample-50kb.txt')));
+app.use('/sample-200kb.txt', express.static(path.join(STATIC_DIR, 'sample-200kb.txt')));
+app.use('/sample-500kb.txt', express.static(path.join(STATIC_DIR, 'sample-500kb.txt')));
+app.use('/sample-1mb.txt', express.static(path.join(STATIC_DIR, 'sample-1mb.txt')));
+app.use('/sample-large.txt', express.static(path.join(STATIC_DIR, 'sample-large.txt')));
 app.use('/demo.html', express.static(path.join(STATIC_DIR, 'demo.html')));
 app.use('/style.css', express.static(path.join(STATIC_DIR, 'style.css')));
 

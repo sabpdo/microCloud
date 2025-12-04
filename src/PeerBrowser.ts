@@ -6,6 +6,7 @@ import { MicroCloudClient } from '../client/src/webrtc';
 import { CacheManifest, ManifestGenerator, CachedResource } from './cache/manifest-generator';
 import { MemoryCache } from './cache';
 import { fetchFromOrigin, OriginFetchResult } from './cache/origin-fallback';
+import { sha256 } from './utils/hash';
 
 interface PeerInfo {
   peerID: string;
@@ -31,7 +32,8 @@ export class PeerBrowser {
 
   private successfulUploads: number;
   private failedTransfers: number;
-  private anchorThreshold: number;
+  private anchorPromoteThreshold: number;
+  private anchorDemoteThreshold: number;
 
   private bandwidth: number;
   private connectionStartTime!: number;
@@ -66,7 +68,9 @@ export class PeerBrowser {
 
     this.successfulUploads = 0;
     this.failedTransfers = 0;
-    this.anchorThreshold = anchorThreshold;
+    // Hysteresis: demote threshold is 85% of promote threshold to reduce flapping
+    this.anchorPromoteThreshold = anchorThreshold;
+    this.anchorDemoteThreshold = anchorThreshold * 0.85;
 
     this.bandwidth = initialBandwidth;
     this.uptime = 0;
@@ -149,23 +153,42 @@ export class PeerBrowser {
     this.cacheManifest = await this.manifestGen.generateManifest();
   }
 
+  /**
+   * Calculate reputation score using formula:
+   * S(peer) = a * n_success + b * B + c * T
+   * where n_success = number of successful uploads, B = bandwidth (Mbps), T = uptime (seconds)
+   * @returns Reputation score (can be > 100 with default weights)
+   */
   public getReputation(): number {
-    const total = this.successfulUploads + this.failedTransfers;
-    const successRate = total > 0 ? this.successfulUploads / total : 0.5;
+    // n_success: number of successful chunk transfers (uploads to other peers)
+    const n_success = this.successfulUploads;
+    
+    // B: bandwidth in Mbps (no normalization per report formula)
+    const B = this.bandwidth;
+    
+    // T: uptime in seconds (current session duration)
+    const T = this.uptime;
+    
+    // Apply weights: a, b, c are tunable scalar weights
+    // Default weights are all 1.0 per report
     return (
-      this.weights.a * successRate * 100 +
-      this.weights.b * this.bandwidth +
-      this.weights.c * this.uptime
+      this.weights.a * n_success +
+      this.weights.b * B +
+      this.weights.c * T
     );
   }
 
   public updateRole(): void {
     const score = this.getReputation();
-    if (score >= this.anchorThreshold) {
+    // Hysteresis: different thresholds for promotion vs demotion to reduce rapid oscillation
+    if (this.role === 'transient' && score >= this.anchorPromoteThreshold) {
+      // Promote to anchor: need to exceed promote threshold
       this.role = 'anchor';
-    } else {
+    } else if (this.role === 'anchor' && score < this.anchorDemoteThreshold) {
+      // Demote from anchor: need to fall below demote threshold (lower than promote)
       this.role = 'transient';
     }
+    // If score is between thresholds, keep current role (hysteresis prevents flapping)
   }
 
   public startRebalancingCycle(): void {
@@ -212,15 +235,35 @@ export class PeerBrowser {
 
   public addPeer(peer: PeerBrowser): void {
     const newPeerInfo: PeerInfo = peer.getPeerInfo();
+    
+    // Get old peer info to clean up stale chunk index entries
+    const oldPeerInfo = this.peerIndex.get(peer.peerID);
+    
+    // Remove this peer from all chunk index entries (in case their cache changed)
+    if (oldPeerInfo) {
+      for (const resource of oldPeerInfo.cacheManifest.resources) {
+        if (this.chunkIndex.has(resource.resourceHash)) {
+          this.chunkIndex.get(resource.resourceHash)?.deletePeer(peer.peerID);
+        }
+      }
+    }
+    
+    // Update peer index
     this.peerIndex.set(peer.peerID, newPeerInfo);
 
     if (peer.webrtcClient) {
       this.peerConnections.set(peer.peerID, peer.webrtcClient);
     }
 
+    // Add this peer to chunk index for their current resources
     for (const resource of newPeerInfo.cacheManifest.resources) {
       if (this.chunkIndex.has(resource.resourceHash)) {
-        this.chunkIndex.get(resource.resourceHash)?.insert(newPeerInfo.reputation, peer.peerID);
+        const pq = this.chunkIndex.get(resource.resourceHash);
+        if (pq) {
+          // Remove peer first to avoid duplicates, then re-insert with current reputation
+          pq.deletePeer(peer.peerID);
+          pq.insert(newPeerInfo.reputation, peer.peerID);
+        }
       } else {
         let pq: PriorityQueue = new PriorityQueue();
         pq.insert(newPeerInfo.reputation, peer.peerID);
@@ -300,6 +343,17 @@ export class PeerBrowser {
           continue;
         }
 
+        // Verify that this peer actually has the requested resource in their manifest
+        // This prevents requesting from peers that have stale chunk index entries
+        const hasResource = peerInfo.cacheManifest.resources.some(
+          r => r.resourceHash === resourceHash
+        );
+        if (!hasResource) {
+          console.warn(`Peer ${peerID} no longer has resource ${resourceHash.substring(0, 8)}... (stale chunk index entry)`);
+          peerQueue.delete_max();
+          continue;
+        }
+
         // Check if we have WebRTC connection to this peer
         const peerClient = this.peerConnections.get(peerID) || peerInfo.client;
         if (!peerClient) {
@@ -309,7 +363,7 @@ export class PeerBrowser {
         }
 
         console.log(
-          `Attempt ${attempt + 1}: Requesting ${resourceHash} from peer ${peerID} via WebRTC`
+          `Attempt ${attempt + 1}: Requesting ${resourceHash.substring(0, 8)}... from peer ${peerID} via WebRTC`
         );
 
         // Request file via WebRTC
@@ -320,6 +374,21 @@ export class PeerBrowser {
         );
 
         if (arrayBuffer) {
+          // Verify hash: compute hash of received content and compare to requested hash
+          const receivedHash = await sha256(arrayBuffer);
+          if (receivedHash !== resourceHash) {
+            // Hash mismatch: peer sent wrong content, treat as failure
+            console.warn(
+              `Hash verification failed for ${resourceHash}: received ${receivedHash} from peer ${peerID}`
+            );
+            // Penalize peer for sending incorrect content
+            if (peerInfo) {
+              this.recordFailedTransfer();
+            }
+            throw new Error(`Hash verification failed: expected ${resourceHash}, got ${receivedHash}`);
+          }
+
+          // Hash matches: content is correct, proceed to cache
           // Get MIME type from manifest or infer
           const manifestEntry = peerInfo.cacheManifest.resources.find(
             (r) => r.resourceHash === resourceHash
@@ -333,7 +402,7 @@ export class PeerBrowser {
           };
 
           this.cache.set(resourceHash, resource);
-          console.log(`Successfully received ${resourceHash} from peer ${peerID} via WebRTC`);
+          console.log(`Successfully received and verified ${resourceHash} from peer ${peerID} via WebRTC`);
           return resource;
         } else {
           throw new Error('Peer returned null/undefined');

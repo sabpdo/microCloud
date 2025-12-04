@@ -1,6 +1,7 @@
 import { CacheManifest, ManifestGenerator, CachedResource } from './cache/manifest-generator';
 import { MemoryCache } from './cache';
 import { fetchFromOrigin, OriginFetchResult } from './cache/origin-fallback';
+import { sha256 } from './utils/hash';
 
 interface PeerInfo {
   peerID: string;
@@ -33,7 +34,8 @@ export class Peer {
   // Peer interaction statistics
   private successfulUploads: number; // Count of successful file uploads to peers
   private failedTransfers: number; // Count of failed transfer attempts
-  private anchorTreshould: number; // Reputation threshold to become anchor node
+  private anchorPromoteThreshold: number; // Reputation threshold to become anchor node
+  private anchorDemoteThreshold: number; // Reputation threshold below which anchor loses status (hysteresis)
 
   // Device characteristics
   private bandwidth: number; // Network bandwidth capacity (Mbps)
@@ -66,7 +68,9 @@ export class Peer {
     this.successfulUploads = 0;
     // this.integrityVerifications = 0;
     this.failedTransfers = 0;
-    this.anchorTreshould = anchorThreshold;
+    // Hysteresis: demote threshold is 85% of promote threshold to reduce flapping
+    this.anchorPromoteThreshold = anchorThreshold;
+    this.anchorDemoteThreshold = anchorThreshold * 0.85;
 
     this.bandwidth = initialBandwidth;
     // this.availableStorage = initialStorage;
@@ -88,29 +92,41 @@ export class Peer {
   }
 
   /**
-   * Calculate reputation score based on upload success rate, bandwidth, and uptime
-   * Avoids division by zero when no transfers have occurred yet
+   * Calculate reputation score using formula
+   * S(peer) = a * n_success + b * B + c * T
+   * where n_success = number of successful uploads, B = bandwidth (Mbps), T = uptime (seconds)
+   * @returns Reputation score (can be > 100 with default weights)
    */
   public getReputation(): number {
-    // Calculate success rate, avoiding division by zero
-    const totalAttempts = this.successfulUploads + this.failedTransfers;
-    const successRate = totalAttempts > 0 ? this.successfulUploads / totalAttempts : 0.5; // Default to 50% if no attempts yet
-
-    // Weighted combination of factors
+    // n_success: number of successful chunk transfers (uploads to other peers)
+    const n_success = this.successfulUploads;
+    
+    // B: bandwidth in Mbps (no normalization per report formula)
+    const B = this.bandwidth;
+    
+    // T: uptime in seconds (current session duration)
+    const T = this.uptime;
+    
+    // Apply weights: a, b, c are tunable scalar weights
+    // Default weights are all 1.0 per report
     return (
-      this.weights.a * successRate * 100 +
-      this.weights.b * this.bandwidth +
-      this.weights.c * this.uptime
+      this.weights.a * n_success +
+      this.weights.b * B +
+      this.weights.c * T
     );
   }
 
   public updateRole(): void {
     const score = this.getReputation();
-    if (score >= this.anchorTreshould) {
+    // Hysteresis: different thresholds for promotion vs demotion to reduce rapid oscillation
+    if (this.role === 'transient' && score >= this.anchorPromoteThreshold) {
+      // Promote to anchor: need to exceed promote threshold
       this.role = 'anchor';
-    } else {
+    } else if (this.role === 'anchor' && score < this.anchorDemoteThreshold) {
+      // Demote from anchor: need to fall below demote threshold (lower than promote)
       this.role = 'transient';
     }
+    // If score is between thresholds, keep current role (hysteresis prevents flapping)
   }
 
   public startRebalancingCycle(): void {
@@ -293,10 +309,29 @@ export class Peer {
         );
 
         if (resource) {
-          // Success - cache the resource and update peer stats
+          // Verify hash: compute hash of received content and compare to requested hash
+          let contentToHash: string | ArrayBuffer | Uint8Array;
+          if (typeof resource.content === 'string') {
+            contentToHash = resource.content;
+          } else {
+            contentToHash = resource.content;
+          }
+          
+          const receivedHash = await sha256(contentToHash);
+          if (receivedHash !== resourceHash) {
+            // Hash mismatch: peer sent wrong content, treat as failure
+            console.warn(
+              `Hash verification failed for ${resourceHash}: received ${receivedHash} from peer ${peerID}`
+            );
+            // Penalize peer for sending incorrect content
+            peerInfo.object.recordFailedTransfer();
+            throw new Error(`Hash verification failed: expected ${resourceHash}, got ${receivedHash}`);
+          }
+
+          // Hash matches: content is correct, proceed to cache
           this.cache.set(resourceHash, resource);
           peerInfo.object.recordSuccessfulUpload(); // Reward peer for serving
-          console.log(`Successfully received ${resourceHash} from peer ${peerID}`);
+          console.log(`Successfully received and verified ${resourceHash} from peer ${peerID}`);
           return resource;
         } else {
           throw new Error('Peer returned null/undefined');

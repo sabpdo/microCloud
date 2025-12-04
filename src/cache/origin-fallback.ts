@@ -13,15 +13,23 @@ export type OriginFetchResult = {
 /**
  * Fetch a resource from the origin server.
  * - Caller handles caching, hashing, and any retries.
- * - Path can be with or without a leading slash.
+ * - Path can be with or without a leading slash, or a full URL (http:// or https://).
  */
 export async function fetchFromOrigin(
   path: string,
   options?: { baseUrl?: string }
 ): Promise<OriginFetchResult> {
-  const baseUrl = (options?.baseUrl ?? 'http://localhost:3000').replace(/\/$/, '');
-  const normalizedPath = path.startsWith('/') ? path : `/${path}`;
-  const url = `${baseUrl}${normalizedPath}`;
+  // Check if path is already a full URL
+  let url: string;
+  if (path.startsWith('http://') || path.startsWith('https://')) {
+    // Use the full URL directly
+    url = path;
+  } else {
+    // Construct URL from baseUrl and path
+    const baseUrl = (options?.baseUrl ?? 'http://localhost:3000').replace(/\/$/, '');
+    const normalizedPath = path.startsWith('/') ? path : `/${path}`;
+    url = `${baseUrl}${normalizedPath}`;
+  }
 
   const res = await fetch(url);
   if (!res.ok) {

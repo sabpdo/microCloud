@@ -274,7 +274,7 @@ export class PeerBrowser {
 
   public updateConnections(): void {
     const now = Date.now();
-    const TIMEOUT_THRESHOLD = 30000;
+    const TIMEOUT_THRESHOLD = 3000;
 
     for (const [peerID, info] of this.peerIndex.entries()) {
       if (now - info.lastSeen * 1000 > TIMEOUT_THRESHOLD) {
@@ -302,8 +302,8 @@ export class PeerBrowser {
     resourceHash: string,
     originPath: string = '/sample.txt'
   ): Promise<CachedResource | null> {
-    const DEFAULT_MAX_RETRIES = 3;
-    const DEFAULT_TIMEOUT = 30000;
+    const DEFAULT_MAX_RETRIES = 2;
+    const DEFAULT_TIMEOUT = 3000;
 
     // Check local cache first
     if (this.cache.has(resourceHash)) {

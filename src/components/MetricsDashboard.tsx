@@ -32,12 +32,36 @@ export function MetricsDashboard() {
   const fetchStats = async () => {
     try {
       const response = await fetch('/stats');
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
       const data = await response.json();
-      setStats(data);
+      // Ensure we have all required fields with defaults
+      setStats({
+        totalRequests: data.totalRequests || 0,
+        totalBytes: data.totalBytes || 0,
+        requestsByPath: data.requestsByPath || {},
+        startTime: data.startTime || new Date().toISOString(),
+        uptime: data.uptime || 0,
+        peerRequests: data.peerRequests || 0,
+        originRequests: data.originRequests || 0,
+        cacheHitRatio: data.cacheHitRatio || 0,
+      });
       setLoading(false);
     } catch (error) {
       console.error('Error fetching stats:', error);
       setLoading(false);
+      // Don't set stats to null on error - show empty state instead
+      setStats({
+        totalRequests: 0,
+        totalBytes: 0,
+        requestsByPath: {},
+        startTime: new Date().toISOString(),
+        uptime: 0,
+        peerRequests: 0,
+        originRequests: 0,
+        cacheHitRatio: 0,
+      });
     }
   };
 
@@ -69,10 +93,13 @@ export function MetricsDashboard() {
     );
   }
 
+  // Show empty state if no stats yet (but don't show error - stats might just be zero)
   if (!stats) {
     return (
-      <Card>
-        <Text c="red">Error loading metrics</Text>
+      <Card shadow="sm" padding="lg" radius="md" withBorder>
+        <Text c="dimmed" ta="center" py="xl">
+          Loading metrics...
+        </Text>
       </Card>
     );
   }
@@ -85,9 +112,14 @@ export function MetricsDashboard() {
   return (
     <Stack gap="xl">
       <Group justify="space-between" align="center">
-        <Title order={2} c="blue">
-          Cache Performance Metrics
-        </Title>
+        <div>
+          <Title order={2} c="blue">
+            Real-Time Cache Performance Metrics
+          </Title>
+          <Text size="sm" c="dimmed" mt="xs">
+            Live statistics from actual browser-based peer connections. Use the Simulation tab for controlled experiments.
+          </Text>
+        </div>
         <Group>
           <Button variant="light" onClick={() => setAutoRefresh(!autoRefresh)} size="sm">
             {autoRefresh ? 'Pause' : 'Resume'} Auto-refresh
@@ -97,6 +129,20 @@ export function MetricsDashboard() {
           </Button>
         </Group>
       </Group>
+
+      {stats.totalRequests === 0 && stats.peerRequests === 0 && stats.originRequests === 0 && (
+        <Card shadow="sm" padding="lg" radius="md" withBorder style={{ backgroundColor: '#f8f9fa' }}>
+          <Text fw={500} mb="xs">No Activity Yet</Text>
+          <Text size="sm" c="dimmed">
+            This dashboard shows real-time metrics from browser-based peer connections. 
+            To see activity, open multiple browser tabs/windows and have them request files from the server.
+            The metrics will update automatically as peers serve content to each other.
+          </Text>
+          <Text size="sm" c="dimmed" mt="md">
+            <strong>Note:</strong> For controlled experiments and detailed analysis, use the <strong>Simulation</strong> tab instead.
+          </Text>
+        </Card>
+      )}
 
       <Grid>
         {/* Cache Hit Ratio */}

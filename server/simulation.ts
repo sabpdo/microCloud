@@ -509,17 +509,23 @@ async function updatePeerBrowserConnections(
 
 /**
  * Get or create file hash for a file URL
- * Fetches the file and generates a full SHA-256 hash
- * Uses full hash (not truncated) for consistency with PeerBrowser cache
+ * For external URLs (http:// or https://), uses URL as hash key to avoid content changes
+ * For local files, hashes the content for accuracy
  * @param fileUrl - URL of the file to hash
  * @returns Full SHA-256 hash string (64 hex characters)
  */
 async function getFileHash(fileUrl: string): Promise<string> {
+  // For external URLs, use URL as hash key since content may change
+  if (fileUrl.startsWith('http://') || fileUrl.startsWith('https://')) {
+    return sha256Sync(fileUrl);
+  }
+  
+  // For local files, hash the content for accuracy
   try {
     const response = await fetch(fileUrl);
     if (response.ok) {
       const content = await response.text();
-      // Hash the actual content (more accurate than URL hash)
+      // Hash the actual content (more accurate than URL hash for local files)
       // Use full hash for consistency with PeerBrowser's cache key format
       return sha256Sync(content);
     }
@@ -1042,11 +1048,35 @@ async function requestFromOrigin(
         // Access private cache to store resource
         const cache = (peerBrowser as any).cache;
         if (cache) {
-          cache.set(fileHash, {
+          const cacheEntry = {
             content: buffer,
             mimeType: mimeType,
             timestamp: Math.floor(Date.now() / 1000),
-          });
+          };
+          cache.set(fileHash, cacheEntry);
+          
+          // Verify the cache entry was actually stored
+          const verifyCache = cache.get(fileHash);
+          if (!verifyCache) {
+            console.error(`Failed to cache file ${fileHash} for peer ${peer.id}`);
+          }
+          
+          // Immediately update manifest so other peers know this peer has the file
+          // This fixes the issue where peers claim to have a file in their manifest
+          // but can't serve it because the manifest wasn't updated after caching
+          await peerBrowser.getManifest();
+          
+          // Verify the manifest includes the file
+          const manifest = (peerBrowser as any).cacheManifest;
+          const hasFileInManifest = manifest?.resources?.some((r: any) => r.resourceHash === fileHash);
+          if (!hasFileInManifest) {
+            console.warn(`File ${fileHash} cached but not in manifest for peer ${peer.id}`);
+          }
+          
+          // Also immediately update peer connections so other peers see the updated manifest
+          // This ensures that when other peers call updatePeerBrowserConnections,
+          // they'll see this peer's updated manifest with the new file
+          await updatePeerBrowserConnections(peer.id, peerBrowser);
         }
       }
 
@@ -1174,34 +1204,55 @@ export async function runFlashCrowdSimulation(
   let fileHash: string;
   let fileSizeBytes = config.fileSizeBytes ?? 10000; // Use config override or default estimate
 
-  // Fetch file to get actual hash and size (unless overridden)
-  if (!config.fileSizeBytes) {
-    try {
-      const response = await fetch(targetUrl);
-      if (response.ok) {
-        const content = await response.text();
-        // Calculate actual size in bytes
-        fileSizeBytes = Buffer.byteLength(content, 'utf8');
-        fileHash = await getFileHash(targetUrl);
-      } else {
-        // Fallback: hash the URL (use full hash)
-        fileHash = sha256Sync(targetUrl);
+  // For external URLs, always use URL as hash (content may change)
+  // For local files, fetch to get size and hash
+  const isExternalUrl = config.targetFile.startsWith('http://') || config.targetFile.startsWith('https://');
+  
+  if (isExternalUrl) {
+    // External URL: use URL as hash key
+    fileHash = sha256Sync(targetUrl);
+    // Try to get file size, but don't fail if we can't
+    if (!config.fileSizeBytes) {
+      try {
+        const response = await fetch(targetUrl);
+        if (response.ok) {
+          const content = await response.text();
+          fileSizeBytes = Buffer.byteLength(content, 'utf8');
+        }
+      } catch (error) {
+        // Use default size if we can't fetch
       }
-    } catch (error) {
-      // Fallback if fetch fails (server might not be running in tests)
-      fileHash = sha256Sync(targetUrl);
     }
   } else {
-    // Use configured file size, still need to hash the file
-    try {
-      const response = await fetch(targetUrl);
-      if (response.ok) {
-        fileHash = await getFileHash(targetUrl);
-      } else {
+    // Local file: fetch to get actual hash and size (unless overridden)
+    if (!config.fileSizeBytes) {
+      try {
+        const response = await fetch(targetUrl);
+        if (response.ok) {
+          const content = await response.text();
+          // Calculate actual size in bytes
+          fileSizeBytes = Buffer.byteLength(content, 'utf8');
+          fileHash = await getFileHash(targetUrl);
+        } else {
+          // Fallback: hash the URL (use full hash)
+          fileHash = sha256Sync(targetUrl);
+        }
+      } catch (error) {
+        // Fallback if fetch fails (server might not be running in tests)
         fileHash = sha256Sync(targetUrl);
       }
-    } catch (error) {
-      fileHash = sha256Sync(targetUrl);
+    } else {
+      // Use configured file size, still need to hash the file
+      try {
+        const response = await fetch(targetUrl);
+        if (response.ok) {
+          fileHash = await getFileHash(targetUrl);
+        } else {
+          fileHash = sha256Sync(targetUrl);
+        }
+      } catch (error) {
+        fileHash = sha256Sync(targetUrl);
+      }
     }
   }
   

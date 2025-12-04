@@ -217,8 +217,28 @@ export class MockMicroCloudClient {
       const chunkDelay = Math.max(1, transferTimeMs / totalChunks);
 
       // Send chunks with simulated bandwidth delay
+      // For multi-chunk files, simulate potential partial transfer failures
+      const partialFailureRate = totalChunks > 1 ? 0.05 : 0; // 5% chance of failure for multi-chunk files
+      
       for (let i = 0; i < totalChunks; i++) {
         await this.delay(chunkDelay + this.latency);
+
+        // Simulate partial transfer failure (chunk loss) for multi-chunk files
+        if (totalChunks > 1 && Math.random() < partialFailureRate) {
+          // Simulate chunk loss - don't send this chunk
+          // The receiver will timeout and request retry
+          this.log(`Simulated chunk loss: chunk ${i} of ${totalChunks} for ${resourceHash}`);
+          // Send failure response with chunk failure indicator
+          const failResponse: PeerMessage = {
+            type: 'file-response',
+            requestId,
+            resourceHash,
+            success: false,
+          };
+          this.sendToRequestingPeer(requestId, failResponse);
+          // Throw error with chunk failure indicator for better tracking
+          throw new Error(`Chunk transfer failure: chunk ${i} of ${totalChunks} lost`);
+        }
 
         const start = i * CHUNK_SIZE;
         const end = Math.min(start + CHUNK_SIZE, bytes.length);
@@ -381,20 +401,35 @@ export class MockMicroCloudClient {
    * Send message to the peer that requested a file
    * In real WebRTC, this would be a direct connection
    * In simulation, we find the requesting peer and send to them
+   * Improved: better handling of request tracking for accurate simulation
    */
   private sendToRequestingPeer(requestId: string, msg: PeerMessage): void {
     const peers = MockMicroCloudClient.messageBus.get(this.roomId) || [];
-    // Find peer that has this request pending
+    // Find peer that has this request pending (the requesting peer)
+    let found = false;
     for (const peer of peers) {
       if (peer !== this && peer.isOpen && peer.pendingRequests.has(requestId)) {
+        // Found the requesting peer - send message with latency simulation
         setTimeout(() => {
           peer.receiveMessage(msg);
-        }, this.latency);
-        return;
+        }, Math.max(1, Math.floor(this.latency / 2))); // Half latency for response (one-way)
+        found = true;
+        break;
       }
     }
-    // If not found, broadcast (fallback)
-    this.broadcastToPeers(msg);
+    // If not found, try broadcasting (fallback for discovery)
+    // This handles cases where request tracking might be delayed
+    if (!found && (msg.type === 'file-response' || msg.type === 'file-chunk')) {
+      // For file transfer messages, we need to find the requester
+      // Try broadcasting but only to peers with pending requests
+      for (const peer of peers) {
+        if (peer !== this && peer.isOpen && peer.pendingRequests.size > 0) {
+          setTimeout(() => {
+            peer.receiveMessage(msg);
+          }, Math.max(1, Math.floor(this.latency / 2)));
+        }
+      }
+    }
   }
 
   /**

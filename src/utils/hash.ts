@@ -9,42 +9,45 @@ import { createHash } from 'crypto';
  * @param data The data to hash (string, Buffer, or Uint8Array)
  * @returns A promise that resolves to the hexadecimal hash string
  */
-export async function sha256(data: string | Buffer | Uint8Array): Promise<string> {
+export async function sha256(data: string | Buffer | Uint8Array | ArrayBuffer): Promise<string> {
   // In Node.js, we'll use the crypto module directly
   if (typeof window === 'undefined') {
     const hash = createHash('sha256');
-    hash.update(data);
+    // Handle ArrayBuffer: convert to Buffer
+    if (data instanceof ArrayBuffer) {
+      hash.update(Buffer.from(data));
+    } else if (data && typeof (data as any).buffer === 'object' && typeof (data as any).byteOffset === 'number') {
+      // TypedArray view (Uint8Array, etc.) - extract underlying buffer
+      const view = data as Uint8Array;
+      hash.update(Buffer.from(view.buffer, view.byteOffset, view.byteLength));
+    } else {
+      // String, Buffer, or plain Uint8Array
+      hash.update(data as string | Buffer | Uint8Array);
+    }
     return hash.digest('hex');
   }
 
   // In the browser, use the Web Crypto API
-  // Convert input to ArrayBufferView for crypto.subtle.digest
-  let buffer: ArrayBufferView;
+  // Convert input to Uint8Array for crypto.subtle.digest
+  let uint8Array: Uint8Array;
   if (typeof data === 'string') {
-    buffer = new TextEncoder().encode(data);
+    uint8Array = new TextEncoder().encode(data);
   } else if (data instanceof Uint8Array) {
-    buffer = data;
-  } else if (data instanceof ArrayBuffer) {
-    buffer = new Uint8Array(data);
+    uint8Array = data;
   } else {
-    // Node.js Buffer or other ArrayBufferView types
-    // Check if Buffer is available (Node.js environment)
-    if (typeof Buffer !== 'undefined') {
-      // Try to detect Node.js Buffer
-      const nodeBuffer = data as any;
-      if (nodeBuffer && typeof nodeBuffer.buffer === 'object' && typeof nodeBuffer.byteOffset === 'number') {
-        buffer = new Uint8Array(nodeBuffer.buffer, nodeBuffer.byteOffset, nodeBuffer.byteLength);
-      } else {
-        // Fallback: wrap as Uint8Array
-        buffer = new Uint8Array(data as ArrayBuffer);
-      }
+    // ArrayBuffer or Buffer - convert to Uint8Array
+    const dataAny = data as any;
+    if (dataAny && typeof dataAny.buffer === 'object' && typeof dataAny.byteOffset === 'number') {
+      // Already a view, extract the underlying buffer
+      uint8Array = new Uint8Array(dataAny.buffer, dataAny.byteOffset, dataAny.byteLength);
     } else {
-      // Fallback: wrap as Uint8Array
-      buffer = new Uint8Array(data as ArrayBuffer);
+      // ArrayBuffer - create view
+      uint8Array = new Uint8Array(data as ArrayBuffer);
     }
   }
-
-  const hashBuffer = await crypto.subtle.digest('SHA-256', buffer);
+  
+  // Type assertion to work around TypeScript's strict BufferSource typing
+  const hashBuffer = await crypto.subtle.digest('SHA-256', uint8Array as BufferSource);
   return bufferToHex(hashBuffer);
 }
 

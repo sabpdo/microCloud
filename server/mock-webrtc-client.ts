@@ -336,39 +336,19 @@ export class MockMicroCloudClient {
           return;
         }
 
-        // Decode base64 chunk
-        try {
-          const buffer = Buffer.from(msg.data, 'base64');
-          const bytes = new Uint8Array(buffer);
-          pending.chunks.set(msg.chunkIndex, bytes);
-          this.log(`received chunk ${msg.chunkIndex + 1}/${msg.totalChunks}`);
-
-          // Check if all chunks received
-          if (pending.chunks.size === pending.totalChunks) {
-            clearTimeout(pending.timeout);
-
-            // Reassemble file
-            const chunks = Array.from(
-              { length: pending.totalChunks },
-              (_, i) => pending.chunks.get(i)!
-            );
-            const totalLength = chunks.reduce((sum, chunk) => sum + chunk.length, 0);
-            const result = new Uint8Array(totalLength);
-            let offset = 0;
-            for (const chunk of chunks) {
-              result.set(chunk, offset);
-              offset += chunk.length;
-            }
-
-            this.pendingRequests.delete(msg.requestId);
-            pending.resolve(result.buffer);
-            this.log('file transfer complete');
-          }
-        } catch (error) {
-          clearTimeout(pending.timeout);
-          this.pendingRequests.delete(msg.requestId);
-          pending.reject(new Error('Failed to decode chunk'));
-        }
+        // Add bandwidth-based delay for receiving/processing chunk
+        // Lower bandwidth peers take longer to process received chunks
+        // Use a reference bandwidth (100 Mbps) to calculate delay factor
+        const referenceBandwidth = 100; // Mbps
+        const receiveDelayFactor = referenceBandwidth / Math.max(this.bandwidth, 1);
+        const baseReceiveDelay = 2; // Base processing delay in ms
+        const receiveDelay = baseReceiveDelay * receiveDelayFactor;
+        
+        // Simulate processing delay before handling the chunk
+        // This is done asynchronously to not block the message handler
+        setTimeout(() => {
+          this.processReceivedChunk(msg, pending);
+        }, Math.round(receiveDelay));
         break;
       }
       case 'file-complete': {
@@ -429,6 +409,54 @@ export class MockMicroCloudClient {
           }, Math.max(1, Math.floor(this.latency / 2)));
         }
       }
+    }
+  }
+
+  /**
+   * Process a received chunk (extracted to support async bandwidth-based delay)
+   */
+  private processReceivedChunk(
+    msg: Extract<PeerMessage, { type: 'file-chunk' }>,
+    pending: {
+      resolve: (data: ArrayBuffer) => void;
+      reject: (error: Error) => void;
+      chunks: Map<number, Uint8Array>;
+      totalChunks: number;
+      timeout: NodeJS.Timeout;
+    }
+  ): void {
+    // Decode base64 chunk
+    try {
+      const buffer = Buffer.from(msg.data, 'base64');
+      const bytes = new Uint8Array(buffer);
+      pending.chunks.set(msg.chunkIndex, bytes);
+      this.log(`received chunk ${msg.chunkIndex + 1}/${msg.totalChunks}`);
+
+      // Check if all chunks received
+      if (pending.chunks.size === pending.totalChunks) {
+        clearTimeout(pending.timeout);
+
+        // Reassemble file
+        const chunks = Array.from(
+          { length: pending.totalChunks },
+          (_, i) => pending.chunks.get(i)!
+        );
+        const totalLength = chunks.reduce((sum, chunk) => sum + chunk.length, 0);
+        const result = new Uint8Array(totalLength);
+        let offset = 0;
+        for (const chunk of chunks) {
+          result.set(chunk, offset);
+          offset += chunk.length;
+        }
+
+        this.pendingRequests.delete(msg.requestId);
+        pending.resolve(result.buffer);
+        this.log('file transfer complete');
+      }
+    } catch (error) {
+      clearTimeout(pending.timeout);
+      this.pendingRequests.delete(msg.requestId);
+      pending.reject(new Error('Failed to decode chunk'));
     }
   }
 

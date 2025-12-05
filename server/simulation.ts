@@ -543,7 +543,14 @@ async function simulatePeerJoin(
   joinEvents: PeerJoinEvent[]
 ): Promise<void> {
   // Get configured latency for joining via anchor node
-  const joinLatency = config.anchorSignalingLatency || 100;
+  const baseJoinLatency = config.anchorSignalingLatency || 100;
+  
+  // Calculate bandwidth-based delay for joining
+  // Lower bandwidth = higher delay (inverse relationship)
+  // Use device heterogeneity max bandwidth or default 100 Mbps as reference
+  const maxBandwidth = config.deviceHeterogeneity?.bandwidthMax ?? 100;
+  const bandwidthFactor = maxBandwidth / Math.max(peer.bandwidth, 1); // Avoid division by zero
+  const joinLatency = baseJoinLatency * bandwidthFactor;
 
   // Find available anchor nodes (sorted by reputation, best first)
   // Anchor nodes help new peers join by hosting signaling servers
@@ -555,7 +562,8 @@ async function simulatePeerJoin(
     // Join via best anchor node (faster, lower latency)
     const anchor = anchorNodes[0];
     // Simulate signaling latency - time to establish connection via anchor
-    await new Promise((resolve) => setTimeout(resolve, joinLatency));
+    // Delay is bandwidth-dependent: lower bandwidth peers take longer to join
+    await new Promise((resolve) => setTimeout(resolve, Math.round(joinLatency)));
 
     // Record join event with anchor information
     joinEvents.push({
@@ -566,7 +574,8 @@ async function simulatePeerJoin(
   } else {
     // No anchor available, must join directly (longer latency)
     // Represents peers joining without existing infrastructure
-    await new Promise((resolve) => setTimeout(resolve, joinLatency * 2));
+    // Double the delay for direct join, still bandwidth-dependent
+    await new Promise((resolve) => setTimeout(resolve, Math.round(joinLatency * 2)));
     joinEvents.push({
       peerId: peer.id,
       timestamp: Date.now(),
@@ -729,6 +738,14 @@ async function simulatePeer(
           transferFromPeer = peersWithFile[0].id; // Best peer (highest reputation)
         }
         
+        // Add bandwidth-based delay before making the request
+        // Lower bandwidth peers take longer to initiate requests
+        const maxBandwidth = config.deviceHeterogeneity?.bandwidthMax ?? 100;
+        const requestDelayFactor = maxBandwidth / Math.max(peer.bandwidth, 1);
+        const baseRequestDelay = 10; // Base delay in ms
+        const requestDelay = baseRequestDelay * requestDelayFactor;
+        await new Promise((resolve) => setTimeout(resolve, Math.round(requestDelay)));
+        
         const resource = await peerBrowser.requestResource(fileHash, config.targetFile);
         const transferEnd = Date.now();
         const transferLatency = transferEnd - transferStart;
@@ -880,11 +897,17 @@ async function simulatePeer(
  * @param fileHash - Hash of file being requested
  */
 // Global server overload tracking for baseline mode
-let serverConcurrentRequests = 0;
-let serverRequestQueue: Array<() => void> = [];
-const SERVER_MAX_CONCURRENT = 30; // Realistic server capacity (much lower for flash crowds)
-const SERVER_BASE_LATENCY = 20; // Base processing latency (ms)
-const SERVER_QUEUE_DELAY = 5; // Base queuing delay per request in queue (ms)
+// Realistic server model with proper queuing (FIFO)
+let activeRequests = 0; // Currently processing requests
+const requestQueue: Array<{ resolve: () => void; startTime: number }> = []; // Queue of waiting requests
+const SERVER_BASE_LATENCY = 20; // Base server processing latency (ms) - realistic for a good server
+const MAX_QUEUE_SIZE = 100; // Maximum requests that can wait in queue
+const REQUEST_TIMEOUT = 30000; // 30 second timeout (realistic)
+
+// Get max concurrent requests based on flash crowd mode
+function getMaxConcurrentRequests(config: SimulationConfig): number {
+  return config.flashCrowd ? 20 : 40; // Lower capacity for flash crowds
+}
 
 async function requestFromOrigin(
   peer: PeerProperties,
@@ -895,31 +918,20 @@ async function requestFromOrigin(
   try {
     const startTime = requestStart || Date.now();
 
-    // If baseline mode, simulate server overload realistically
+    // If baseline mode, simulate server overload realistically with proper queuing
     if (config.baselineMode) {
-      // Simulate server queuing and overload
-      serverConcurrentRequests++;
-      const queuePosition = Math.max(0, serverConcurrentRequests - SERVER_MAX_CONCURRENT);
+      const requestArrivalTime = startTime;
+      const maxConcurrentRequests = getMaxConcurrentRequests(config);
       
-      // Calculate server latency based on overload
-      // Base latency + queuing delay + overload degradation
-      const capacityRatio = serverConcurrentRequests / SERVER_MAX_CONCURRENT;
-      let serverLatency = SERVER_BASE_LATENCY;
-      
-      // Queuing delay: each request beyond capacity waits
-      const queueDelay = queuePosition * SERVER_QUEUE_DELAY;
-      
-      // Server degradation: exponential increase under load
-      if (capacityRatio > 1.5) {
-        // Severely overloaded: exponential degradation
-        serverLatency = SERVER_BASE_LATENCY * Math.pow(2, capacityRatio - 1.5) + queueDelay;
-        // High failure rate when severely overloaded
-        if (Math.random() < 0.4) {
-          serverConcurrentRequests--;
-          const timeoutLatency = 10000; // 10 second timeout
+      // Try to acquire server slot
+      if (activeRequests >= maxConcurrentRequests) {
+        // Server at capacity - check if queue is full
+        if (requestQueue.length >= MAX_QUEUE_SIZE) {
+          // Queue full - request rejected (simulates "503 Service Unavailable")
+          // In real servers, this happens immediately, so minimal latency
           requestMetrics.push({
             timestamp: startTime,
-            latency: timeoutLatency,
+            latency: 10, // Instant rejection with minimal overhead
             source: 'origin',
             peerId: peer.id,
             peerBandwidthTier: getBandwidthTier(peer.bandwidth),
@@ -930,16 +942,20 @@ async function requestFromOrigin(
           peer.requestCount++;
           return;
         }
-      } else if (capacityRatio > 1.0) {
-        // Overloaded: linear degradation + queuing
-        serverLatency = SERVER_BASE_LATENCY * (1 + (capacityRatio - 1.0) * 3) + queueDelay;
-        // Some failures when overloaded
-        if (Math.random() < 0.15) {
-          serverConcurrentRequests--;
-          const timeoutLatency = 5000; // 5 second timeout
+        
+        // Wait in queue for server capacity (FIFO)
+        const queueStartTime = Date.now();
+        await new Promise<void>((resolve) => {
+          requestQueue.push({ resolve, startTime: queueStartTime });
+        });
+        
+        const queueWaitTime = Date.now() - queueStartTime;
+        
+        // Check if we timed out while waiting in queue
+        if (queueWaitTime >= REQUEST_TIMEOUT) {
           requestMetrics.push({
             timestamp: startTime,
-            latency: timeoutLatency,
+            latency: REQUEST_TIMEOUT,
             source: 'origin',
             peerId: peer.id,
             peerBandwidthTier: getBandwidthTier(peer.bandwidth),
@@ -950,21 +966,39 @@ async function requestFromOrigin(
           peer.requestCount++;
           return;
         }
-      } else if (capacityRatio > 0.7) {
-        // High load: moderate degradation
-        serverLatency = SERVER_BASE_LATENCY * (1 + (capacityRatio - 0.7) * 2) + queueDelay;
-      } else {
-        // Normal load: just base latency + small queuing if any
-        serverLatency = SERVER_BASE_LATENCY + queueDelay;
       }
       
-      // Total latency = network latency + server processing + queuing
-      const totalLatency = peer.latency + serverLatency;
+      // Acquired server slot - start processing
+      activeRequests++;
+      
+      // Calculate processing latency based on current load
+      // Under 80% capacity: normal latency
+      // Over 80%: degradation due to resource contention (CPU, memory, I/O)
+      const loadRatio = activeRequests / maxConcurrentRequests;
+      let processingLatency = SERVER_BASE_LATENCY;
+      
+      if (loadRatio > 0.8) {
+        // Server under stress - resource contention causes slowdown
+        // Linear degradation: 1.2x at 0.8, 1.5x at 0.9, 2x at 1.0
+        processingLatency = SERVER_BASE_LATENCY * (1 + (loadRatio - 0.8) * 5);
+      }
       
       // Simulate request processing time
-      await new Promise((resolve) => setTimeout(resolve, Math.min(totalLatency, 15000)));
+      await new Promise((resolve) => setTimeout(resolve, processingLatency));
       
-      serverConcurrentRequests--;
+      // Request complete - release server slot
+      activeRequests--;
+      
+      // Process next queued request if any (FIFO order)
+      if (requestQueue.length > 0) {
+        const nextRequest = requestQueue.shift()!;
+        // Resolve the promise to let the next request proceed
+        nextRequest.resolve();
+      }
+      
+      // Total latency = network latency + server latency (queuing + processing)
+      const totalServerLatency = Date.now() - requestArrivalTime;
+      const totalLatency = peer.latency + totalServerLatency;
       
       // Track metrics
       requestMetrics.push({
@@ -1154,8 +1188,8 @@ export async function runFlashCrowdSimulation(
   MockMicroCloudClient.clearAllRooms(); // Clear mock WebRTC message bus
   
   // Reset server overload tracking for baseline mode
-  serverConcurrentRequests = 0;
-  serverRequestQueue = [];
+  activeRequests = 0;
+  requestQueue.length = 0; // Clear queue
 
   // Track simulation state
   // Note: numPeers is the maximum number of peers that can exist at any time

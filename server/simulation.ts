@@ -17,7 +17,7 @@ function sha256Sync(data: string): string {
 }
 
 export interface SimulationConfig {
-  numPeers: number;
+  numPeers: number; // Maximum number of peers that can exist at any time (peers that leave don't rejoin)
   targetFile: string;
   duration: number; // seconds
   // Request behavior: probability-based instead of fixed interval
@@ -26,7 +26,6 @@ export interface SimulationConfig {
   // Churn configuration
   churnRate?: number; // probability of peer leaving per cycle (0-1)
   churnMode?: 'leaving' | 'joining' | 'mixed'; // churn behavior mode (default: 'mixed')
-  rejoinRate?: number; // probability of a churned peer rejoining per cycle (0-1, default: 0.5 * churnRate)
   // Flash crowd configuration
   flashCrowd?: boolean; // if true, peers join over time instead of all at once
   joinRate?: number; // peers per second for flash crowd (default: 2, can be increased for more intense flash crowds)
@@ -188,7 +187,7 @@ const fileRegistry = new Map<string, Set<string>>(); // fileHash -> Set<peerId>
 const peerRegistry = new Map<string, PeerProperties>(); // peerId -> Peer
 // Global PeerBrowser registry: actual peer instances with WebRTC clients for real transfers
 const peerBrowserRegistry = new Map<string, PeerBrowser>(); // peerId -> PeerBrowser
-// Churned peers registry: tracks peers that have left, for potential rejoining
+// Churned peers registry: tracks peers that have left (for metrics only, no rejoining)
 const churnedPeersRegistry = new Map<string, { peer: PeerProperties; churnTime: number }>(); // peerId -> {peer, churnTime}
 
 /**
@@ -544,7 +543,14 @@ async function simulatePeerJoin(
   joinEvents: PeerJoinEvent[]
 ): Promise<void> {
   // Get configured latency for joining via anchor node
-  const joinLatency = config.anchorSignalingLatency || 100;
+  const baseJoinLatency = config.anchorSignalingLatency || 100;
+  
+  // Calculate bandwidth-based delay for joining
+  // Lower bandwidth = higher delay (inverse relationship)
+  // Use device heterogeneity max bandwidth or default 100 Mbps as reference
+  const maxBandwidth = config.deviceHeterogeneity?.bandwidthMax ?? 100;
+  const bandwidthFactor = maxBandwidth / Math.max(peer.bandwidth, 1); // Avoid division by zero
+  const joinLatency = baseJoinLatency * bandwidthFactor;
 
   // Find available anchor nodes (sorted by reputation, best first)
   // Anchor nodes help new peers join by hosting signaling servers
@@ -556,7 +562,8 @@ async function simulatePeerJoin(
     // Join via best anchor node (faster, lower latency)
     const anchor = anchorNodes[0];
     // Simulate signaling latency - time to establish connection via anchor
-    await new Promise((resolve) => setTimeout(resolve, joinLatency));
+    // Delay is bandwidth-dependent: lower bandwidth peers take longer to join
+    await new Promise((resolve) => setTimeout(resolve, Math.round(joinLatency)));
 
     // Record join event with anchor information
     joinEvents.push({
@@ -567,7 +574,8 @@ async function simulatePeerJoin(
   } else {
     // No anchor available, must join directly (longer latency)
     // Represents peers joining without existing infrastructure
-    await new Promise((resolve) => setTimeout(resolve, joinLatency * 2));
+    // Double the delay for direct join, still bandwidth-dependent
+    await new Promise((resolve) => setTimeout(resolve, Math.round(joinLatency * 2)));
     joinEvents.push({
       peerId: peer.id,
       timestamp: Date.now(),
@@ -615,13 +623,13 @@ async function simulatePeer(
     const churnMode = config.churnMode ?? 'mixed';
     const canLeave = churnMode === 'leaving' || churnMode === 'mixed';
     if (canLeave && config.churnRate && Math.random() < (config.churnRate * (checkInterval / 1000))) {
-      // Store peer info before removing (for potential rejoin)
+      // Peer is leaving - clean up and remove from system
       const peerBrowser = peerBrowserRegistry.get(peer.id);
       if (peerBrowser) {
         peerBrowser.stopUptimeTracking();
       }
       
-      // Store peer in churned registry (keep properties for rejoining)
+      // Store peer in churned registry (for metrics only, no rejoining)
       churnedPeersRegistry.set(peer.id, {
         peer: { ...peer }, // Copy peer properties
         churnTime: Date.now(),
@@ -635,7 +643,7 @@ async function simulatePeer(
       peerBrowserRegistry.delete(peer.id);
       
       onChurn();
-      return; // Peer leaves
+      return; // Peer leaves (does not rejoin)
     }
 
     // Probability-based request: check if peer should make a request this cycle
@@ -729,6 +737,14 @@ async function simulatePeer(
         if (peersWithFile.length > 0) {
           transferFromPeer = peersWithFile[0].id; // Best peer (highest reputation)
         }
+        
+        // Add bandwidth-based delay before making the request
+        // Lower bandwidth peers take longer to initiate requests
+        const maxBandwidth = config.deviceHeterogeneity?.bandwidthMax ?? 100;
+        const requestDelayFactor = maxBandwidth / Math.max(peer.bandwidth, 1);
+        const baseRequestDelay = 10; // Base delay in ms
+        const requestDelay = baseRequestDelay * requestDelayFactor;
+        await new Promise((resolve) => setTimeout(resolve, Math.round(requestDelay)));
         
         const resource = await peerBrowser.requestResource(fileHash, config.targetFile);
         const transferEnd = Date.now();
@@ -881,11 +897,17 @@ async function simulatePeer(
  * @param fileHash - Hash of file being requested
  */
 // Global server overload tracking for baseline mode
-let serverConcurrentRequests = 0;
-let serverRequestQueue: Array<() => void> = [];
-const SERVER_MAX_CONCURRENT = 30; // Realistic server capacity (much lower for flash crowds)
-const SERVER_BASE_LATENCY = 20; // Base processing latency (ms)
-const SERVER_QUEUE_DELAY = 5; // Base queuing delay per request in queue (ms)
+// Realistic server model with proper queuing (FIFO)
+let activeRequests = 0; // Currently processing requests
+const requestQueue: Array<{ resolve: () => void; startTime: number }> = []; // Queue of waiting requests
+const SERVER_BASE_LATENCY = 20; // Base server processing latency (ms) - realistic for a good server
+const MAX_QUEUE_SIZE = 100; // Maximum requests that can wait in queue
+const REQUEST_TIMEOUT = 30000; // 30 second timeout (realistic)
+
+// Get max concurrent requests based on flash crowd mode
+function getMaxConcurrentRequests(config: SimulationConfig): number {
+  return config.flashCrowd ? 20 : 40; // Lower capacity for flash crowds
+}
 
 async function requestFromOrigin(
   peer: PeerProperties,
@@ -896,31 +918,20 @@ async function requestFromOrigin(
   try {
     const startTime = requestStart || Date.now();
 
-    // If baseline mode, simulate server overload realistically
+    // If baseline mode, simulate server overload realistically with proper queuing
     if (config.baselineMode) {
-      // Simulate server queuing and overload
-      serverConcurrentRequests++;
-      const queuePosition = Math.max(0, serverConcurrentRequests - SERVER_MAX_CONCURRENT);
+      const requestArrivalTime = startTime;
+      const maxConcurrentRequests = getMaxConcurrentRequests(config);
       
-      // Calculate server latency based on overload
-      // Base latency + queuing delay + overload degradation
-      const capacityRatio = serverConcurrentRequests / SERVER_MAX_CONCURRENT;
-      let serverLatency = SERVER_BASE_LATENCY;
-      
-      // Queuing delay: each request beyond capacity waits
-      const queueDelay = queuePosition * SERVER_QUEUE_DELAY;
-      
-      // Server degradation: exponential increase under load
-      if (capacityRatio > 1.5) {
-        // Severely overloaded: exponential degradation
-        serverLatency = SERVER_BASE_LATENCY * Math.pow(2, capacityRatio - 1.5) + queueDelay;
-        // High failure rate when severely overloaded
-        if (Math.random() < 0.4) {
-          serverConcurrentRequests--;
-          const timeoutLatency = 10000; // 10 second timeout
+      // Try to acquire server slot
+      if (activeRequests >= maxConcurrentRequests) {
+        // Server at capacity - check if queue is full
+        if (requestQueue.length >= MAX_QUEUE_SIZE) {
+          // Queue full - request rejected (simulates "503 Service Unavailable")
+          // In real servers, this happens immediately, so minimal latency
           requestMetrics.push({
             timestamp: startTime,
-            latency: timeoutLatency,
+            latency: 10, // Instant rejection with minimal overhead
             source: 'origin',
             peerId: peer.id,
             peerBandwidthTier: getBandwidthTier(peer.bandwidth),
@@ -931,16 +942,20 @@ async function requestFromOrigin(
           peer.requestCount++;
           return;
         }
-      } else if (capacityRatio > 1.0) {
-        // Overloaded: linear degradation + queuing
-        serverLatency = SERVER_BASE_LATENCY * (1 + (capacityRatio - 1.0) * 3) + queueDelay;
-        // Some failures when overloaded
-        if (Math.random() < 0.15) {
-          serverConcurrentRequests--;
-          const timeoutLatency = 5000; // 5 second timeout
+        
+        // Wait in queue for server capacity (FIFO)
+        const queueStartTime = Date.now();
+        await new Promise<void>((resolve) => {
+          requestQueue.push({ resolve, startTime: queueStartTime });
+        });
+        
+        const queueWaitTime = Date.now() - queueStartTime;
+        
+        // Check if we timed out while waiting in queue
+        if (queueWaitTime >= REQUEST_TIMEOUT) {
           requestMetrics.push({
             timestamp: startTime,
-            latency: timeoutLatency,
+            latency: REQUEST_TIMEOUT,
             source: 'origin',
             peerId: peer.id,
             peerBandwidthTier: getBandwidthTier(peer.bandwidth),
@@ -951,21 +966,39 @@ async function requestFromOrigin(
           peer.requestCount++;
           return;
         }
-      } else if (capacityRatio > 0.7) {
-        // High load: moderate degradation
-        serverLatency = SERVER_BASE_LATENCY * (1 + (capacityRatio - 0.7) * 2) + queueDelay;
-      } else {
-        // Normal load: just base latency + small queuing if any
-        serverLatency = SERVER_BASE_LATENCY + queueDelay;
       }
       
-      // Total latency = network latency + server processing + queuing
-      const totalLatency = peer.latency + serverLatency;
+      // Acquired server slot - start processing
+      activeRequests++;
+      
+      // Calculate processing latency based on current load
+      // Under 80% capacity: normal latency
+      // Over 80%: degradation due to resource contention (CPU, memory, I/O)
+      const loadRatio = activeRequests / maxConcurrentRequests;
+      let processingLatency = SERVER_BASE_LATENCY;
+      
+      if (loadRatio > 0.8) {
+        // Server under stress - resource contention causes slowdown
+        // Linear degradation: 1.2x at 0.8, 1.5x at 0.9, 2x at 1.0
+        processingLatency = SERVER_BASE_LATENCY * (1 + (loadRatio - 0.8) * 5);
+      }
       
       // Simulate request processing time
-      await new Promise((resolve) => setTimeout(resolve, Math.min(totalLatency, 15000)));
+      await new Promise((resolve) => setTimeout(resolve, processingLatency));
       
-      serverConcurrentRequests--;
+      // Request complete - release server slot
+      activeRequests--;
+      
+      // Process next queued request if any (FIFO order)
+      if (requestQueue.length > 0) {
+        const nextRequest = requestQueue.shift()!;
+        // Resolve the promise to let the next request proceed
+        nextRequest.resolve();
+      }
+      
+      // Total latency = network latency + server latency (queuing + processing)
+      const totalServerLatency = Date.now() - requestArrivalTime;
+      const totalLatency = peer.latency + totalServerLatency;
       
       // Track metrics
       requestMetrics.push({
@@ -1155,10 +1188,12 @@ export async function runFlashCrowdSimulation(
   MockMicroCloudClient.clearAllRooms(); // Clear mock WebRTC message bus
   
   // Reset server overload tracking for baseline mode
-  serverConcurrentRequests = 0;
-  serverRequestQueue = [];
+  activeRequests = 0;
+  requestQueue.length = 0; // Clear queue
 
   // Track simulation state
+  // Note: numPeers is the maximum number of peers that can exist at any time
+  // When peers leave due to churn, they don't rejoin - the system has fewer peers
   const peers: PeerProperties[] = [];
   let churnedPeers = 0;
   const joinEvents: PeerJoinEvent[] = []; // Record all peer joins
@@ -1212,6 +1247,8 @@ export async function runFlashCrowdSimulation(
   const joinRate = config.joinRate || 2; // Peers per second for flash crowd
 
   // Create all peers with varied properties
+  // Note: numPeers is the maximum number of peers that can exist at any time.
+  // When peers leave due to churn, they don't rejoin - the system has fewer active peers.
   // Peers are created upfront but may join at different times (flash crowd)
   for (let i = 0; i < config.numPeers; i++) {
     const peerId = `peer-${String(i + 1).padStart(3, '0')}`;
@@ -1233,48 +1270,11 @@ export async function runFlashCrowdSimulation(
 
   // Track churn events
   const churnEvents: number[] = [];
-  const rejoinEvents: PeerJoinEvent[] = [];
   const onChurn = () => {
     churnedPeers++;
     churnEvents.push(Date.now());
   };
 
-  // Function to handle peer rejoining
-  const handlePeerRejoin = async (churnedPeer: { peer: PeerProperties; churnTime: number }) => {
-    const { peer: oldPeer } = churnedPeer;
-    
-    // Create new peer with same properties but reset some stats
-    const newPeer = createPeer(
-      oldPeer.id,
-      peerRegistry.size, // Use current active peer count as index
-      config.numPeers,
-      Date.now(), // New join time
-      config
-    );
-    
-    // Restore some properties from before churn
-    newPeer.bandwidth = oldPeer.bandwidth;
-    newPeer.latency = oldPeer.latency;
-    // Reset request/upload stats for fresh start
-    newPeer.requestCount = 0;
-    newPeer.uploadsServed = 0;
-    newPeer.cacheHits = 0;
-    newPeer.localCacheHits = 0;
-    newPeer.cacheMisses = 0;
-    
-    // If peer had files before, they're lost (simulating cache cleared on disconnect)
-    // But they can re-download from other peers
-    
-    // Add to peers array for tracking
-    peers.push(newPeer);
-    
-    // Record rejoin event
-    await simulatePeerJoin(newPeer, config, rejoinEvents);
-    
-    // Start peer simulation (add to promises so we wait for it)
-    const rejoinPromise = simulatePeer(newPeer, config, fileHash, fileSizeBytes, transferEvents, onChurn);
-    peerPromises.push(rejoinPromise);
-  };
 
   // Start peers (with staggered joins for flash crowd)
   const peerPromises: Promise<void>[] = [];
@@ -1306,47 +1306,8 @@ export async function runFlashCrowdSimulation(
     }
   }
 
-  // Start rejoin monitoring (peers can rejoin after churning)
-  // Only allow rejoins if churn mode allows joining
-  const churnMode = config.churnMode ?? 'mixed';
-  const canJoin = churnMode === 'joining' || churnMode === 'mixed';
-  const rejoinRate = canJoin ? (config.rejoinRate ?? (config.churnRate ? config.churnRate * 0.5 : 0)) : 0;
-  let rejoinCheckInterval: NodeJS.Timeout | null = null;
-  
-  if (canJoin && config.churnRate && rejoinRate > 0) {
-    // Only start rejoin monitoring if churn is enabled and rejoin rate > 0
-    rejoinCheckInterval = setInterval(() => {
-      if (churnedPeersRegistry.size === 0) return;
-      
-      // Check each churned peer for potential rejoin
-      const peersToRejoin: Array<{ peerId: string; data: { peer: PeerProperties; churnTime: number } }> = [];
-      
-      for (const [peerId, churnedData] of churnedPeersRegistry.entries()) {
-        // Only allow rejoin if enough time has passed (at least 2 seconds)
-        const timeSinceChurn = Date.now() - churnedData.churnTime;
-        if (timeSinceChurn >= 2000 && Math.random() < rejoinRate) {
-          peersToRejoin.push({ peerId, data: churnedData });
-        }
-      }
-      
-      // Process rejoins
-      for (const { peerId, data } of peersToRejoin) {
-        // Remove from churned registry before rejoining
-        churnedPeersRegistry.delete(peerId);
-        handlePeerRejoin(data).catch((err) => {
-          console.error(`Error rejoining peer ${peerId}:`, err);
-        });
-      }
-    }, 2000); // Check every 2 seconds to avoid too frequent checks
-  }
-
   // Wait for all peers to complete
   await Promise.all(peerPromises);
-  
-  // Clean up rejoin monitoring
-  if (rejoinCheckInterval) {
-    clearInterval(rejoinCheckInterval);
-  }
   
   const endTime = Date.now();
 
@@ -1741,7 +1702,7 @@ export async function runFlashCrowdSimulation(
     recoverySpeed: recoverySpeed ? Math.round(recoverySpeed * 10) / 10 : undefined,
     peersSimulated: config.numPeers,
     duration: Math.round((endTime - startTime) / 100) / 10,
-    peerJoinEvents: [...joinEvents, ...rejoinEvents].sort((a, b) => a.timestamp - b.timestamp),
+    peerJoinEvents: joinEvents.sort((a, b) => a.timestamp - b.timestamp),
     fileTransferEvents: transferEvents.sort((a, b) => a.timestamp - b.timestamp),
     anchorNodes,
     filePropagationTime,

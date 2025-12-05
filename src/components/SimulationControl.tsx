@@ -30,7 +30,6 @@ interface SimulationConfig {
   requestInterval?: number; // DEPRECATED: use requestProbability instead
   requestProbability?: number; // Probability per second (0-1)
   churnRate: number;
-  rejoinRate?: number;
   flashCrowd: boolean;
   joinRate: number;
   anchorSignalingLatency: number;
@@ -144,7 +143,6 @@ export function SimulationControl() {
     duration: 30,
     requestProbability: 0.5, // 50% chance per second
     churnRate: 0,
-    rejoinRate: 0,
     flashCrowd: false,
     joinRate: 2,
     anchorSignalingLatency: 100,
@@ -206,19 +204,45 @@ export function SimulationControl() {
     toast.info('Starting flash crowd simulation with baseline comparison...');
 
     try {
-      // Simulate progress updates
-      const progressInterval = setInterval(() => {
-        setProgress((prev) => {
-          if (prev >= 90) {
-            clearInterval(progressInterval);
-            return prev;
-          }
-          return prev + 5;
-        });
-      }, 500);
-
       // Use custom URL if provided, otherwise use selected file
       const target = targetType === 'url' ? customUrl.trim() : config.targetFile;
+
+      // Calculate progress based on estimated simulation time
+      // Each simulation takes approximately: duration + overhead (network, processing)
+      const estimatedSimulationTime = config.duration + 2; // seconds per simulation
+      const progressUpdateInterval = 100; // Update every 100ms for smooth progress
+      
+      // Progress tracking: 0-45% for first simulation, 45-90% for second, 90-100% for completion
+      let currentDecimalProgress = 0; // Track decimal progress to avoid rounding errors
+      
+      const startProgressTracking = (startPercent: number, endPercent: number, duration: number, intervalRef: { current: NodeJS.Timeout | null }) => {
+        const range = endPercent - startPercent;
+        const totalUpdates = Math.ceil((duration * 1000) / progressUpdateInterval);
+        const progressPerUpdate = range / totalUpdates;
+        
+        // Reset current progress to start
+        currentDecimalProgress = startPercent;
+        
+        const interval = setInterval(() => {
+          currentDecimalProgress = Math.min(currentDecimalProgress + progressPerUpdate, endPercent);
+          setProgress(Math.round(currentDecimalProgress));
+          
+          if (currentDecimalProgress >= endPercent) {
+            if (intervalRef.current) {
+              clearInterval(intervalRef.current);
+              intervalRef.current = null;
+            }
+          }
+        }, progressUpdateInterval);
+        
+        intervalRef.current = interval;
+        return interval;
+      };
+
+      const intervalRef = { current: null as NodeJS.Timeout | null };
+
+      // Start progress tracking for first simulation (0-45%)
+      startProgressTracking(0, 45, estimatedSimulationTime, intervalRef);
 
       // Run µCloud simulation
       toast.info('Running µCloud simulation...');
@@ -238,6 +262,14 @@ export function SimulationControl() {
 
       const data = await response.json();
       setResults(data.results);
+      
+      // Clear first progress interval and start second (45-90%)
+      if (intervalRef.current) {
+        clearInterval(intervalRef.current);
+        intervalRef.current = null;
+      }
+      setProgress(45);
+      startProgressTracking(45, 90, estimatedSimulationTime, intervalRef);
 
       // Run baseline simulation (origin-only) with same config
       toast.info('Running baseline (origin-only) simulation...');
@@ -258,7 +290,11 @@ export function SimulationControl() {
       const baselineData = await baselineResponse.json();
       setBaselineResults(baselineData.results);
 
-      clearInterval(progressInterval);
+      // Complete progress
+      if (intervalRef.current) {
+        clearInterval(intervalRef.current);
+        intervalRef.current = null;
+      }
       setProgress(100);
       toast.success('Both simulations completed!');
     } catch (error) {
@@ -484,7 +520,7 @@ export function SimulationControl() {
         <SimpleGrid cols={{ base: 1, sm: 2 }} spacing="md" mb="lg">
           <NumberInput
             label="Number of Peers"
-            description="20-100 peers recommended for normal tests, up to 500 for stress tests"
+            description="Maximum number of peers that can exist at any time. When peers leave due to churn, they don't rejoin. 20-100 peers recommended for normal tests, up to 500 for stress tests"
             value={config.numPeers}
             onChange={(value) => setConfig({ ...config, numPeers: Number(value) || 20 })}
             min={1}
@@ -579,9 +615,7 @@ export function SimulationControl() {
               const newChurnRate = Number(value) || 0;
               setConfig({ 
                 ...config, 
-                churnRate: newChurnRate,
-                // Auto-set rejoin rate to 50% of churn rate if not explicitly set
-                rejoinRate: config.rejoinRate === undefined ? newChurnRate * 0.5 : config.rejoinRate
+                churnRate: newChurnRate
               });
             }}
             min={0}
@@ -590,18 +624,6 @@ export function SimulationControl() {
             disabled={running}
           />
 
-          {config.churnRate > 0 && (
-            <NumberInput
-              label="Rejoin Rate (0-1)"
-              description="Probability of churned peer rejoining per cycle (default: 50% of churn rate)"
-              value={config.rejoinRate ?? config.churnRate * 0.5}
-              onChange={(value) => setConfig({ ...config, rejoinRate: Number(value) || 0 })}
-              min={0}
-              max={1}
-              step={0.01}
-              disabled={running}
-            />
-          )}
 
           <Switch
             label="Flash Crowd Mode"
@@ -720,7 +742,7 @@ export function SimulationControl() {
         </SimpleGrid>
 
         {/* Configuration Summary */}
-        <Card shadow="sm" padding="md" radius="md" withBorder mt="lg" style={{ backgroundColor: '#f8f9fa' }}>
+        <Card shadow="sm" padding="md" radius="md" withBorder mt="lg" mb="lg" style={{ backgroundColor: '#f8f9fa' }}>
           <Title order={4} mb="md" c="dimmed">
             Configuration Summary
           </Title>

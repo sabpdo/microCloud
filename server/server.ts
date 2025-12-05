@@ -360,7 +360,6 @@ app.post('/api/simulate', async (req: Request, res: Response) => {
       requestInterval,
       requestProbability,
       churnRate,
-      rejoinRate,
       flashCrowd,
       joinRate,
       anchorSignalingLatency,
@@ -377,7 +376,6 @@ app.post('/api/simulate', async (req: Request, res: Response) => {
       requestInterval: requestInterval, // DEPRECATED: kept for backward compatibility
       requestProbability: requestProbability !== undefined ? requestProbability : (requestInterval ? Math.min(1.0, 1000 / requestInterval) : 0.5),
       churnRate: churnRate || 0,
-      rejoinRate: rejoinRate,
       flashCrowd: flashCrowd !== undefined ? flashCrowd : false,
       joinRate: joinRate || 2, // peers per second
       anchorSignalingLatency: anchorSignalingLatency || 100, // ms

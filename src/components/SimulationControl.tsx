@@ -742,7 +742,7 @@ export function SimulationControl() {
         </SimpleGrid>
 
         {/* Configuration Summary */}
-        <Card shadow="sm" padding="md" radius="md" withBorder mt="lg" style={{ backgroundColor: '#f8f9fa' }}>
+        <Card shadow="sm" padding="md" radius="md" withBorder mt="lg" mb="lg" style={{ backgroundColor: '#f8f9fa' }}>
           <Title order={4} mb="md" c="dimmed">
             Configuration Summary
           </Title>

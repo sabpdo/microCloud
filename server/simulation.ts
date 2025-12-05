@@ -17,7 +17,7 @@ function sha256Sync(data: string): string {
 }
 
 export interface SimulationConfig {
-  numPeers: number;
+  numPeers: number; // Maximum number of peers that can exist at any time (peers that leave don't rejoin)
   targetFile: string;
   duration: number; // seconds
   // Request behavior: probability-based instead of fixed interval
@@ -26,7 +26,6 @@ export interface SimulationConfig {
   // Churn configuration
   churnRate?: number; // probability of peer leaving per cycle (0-1)
   churnMode?: 'leaving' | 'joining' | 'mixed'; // churn behavior mode (default: 'mixed')
-  rejoinRate?: number; // probability of a churned peer rejoining per cycle (0-1, default: 0.5 * churnRate)
   // Flash crowd configuration
   flashCrowd?: boolean; // if true, peers join over time instead of all at once
   joinRate?: number; // peers per second for flash crowd (default: 2, can be increased for more intense flash crowds)
@@ -188,7 +187,7 @@ const fileRegistry = new Map<string, Set<string>>(); // fileHash -> Set<peerId>
 const peerRegistry = new Map<string, PeerProperties>(); // peerId -> Peer
 // Global PeerBrowser registry: actual peer instances with WebRTC clients for real transfers
 const peerBrowserRegistry = new Map<string, PeerBrowser>(); // peerId -> PeerBrowser
-// Churned peers registry: tracks peers that have left, for potential rejoining
+// Churned peers registry: tracks peers that have left (for metrics only, no rejoining)
 const churnedPeersRegistry = new Map<string, { peer: PeerProperties; churnTime: number }>(); // peerId -> {peer, churnTime}
 
 /**
@@ -615,13 +614,13 @@ async function simulatePeer(
     const churnMode = config.churnMode ?? 'mixed';
     const canLeave = churnMode === 'leaving' || churnMode === 'mixed';
     if (canLeave && config.churnRate && Math.random() < (config.churnRate * (checkInterval / 1000))) {
-      // Store peer info before removing (for potential rejoin)
+      // Peer is leaving - clean up and remove from system
       const peerBrowser = peerBrowserRegistry.get(peer.id);
       if (peerBrowser) {
         peerBrowser.stopUptimeTracking();
       }
       
-      // Store peer in churned registry (keep properties for rejoining)
+      // Store peer in churned registry (for metrics only, no rejoining)
       churnedPeersRegistry.set(peer.id, {
         peer: { ...peer }, // Copy peer properties
         churnTime: Date.now(),
@@ -635,7 +634,7 @@ async function simulatePeer(
       peerBrowserRegistry.delete(peer.id);
       
       onChurn();
-      return; // Peer leaves
+      return; // Peer leaves (does not rejoin)
     }
 
     // Probability-based request: check if peer should make a request this cycle
@@ -1159,6 +1158,8 @@ export async function runFlashCrowdSimulation(
   serverRequestQueue = [];
 
   // Track simulation state
+  // Note: numPeers is the maximum number of peers that can exist at any time
+  // When peers leave due to churn, they don't rejoin - the system has fewer peers
   const peers: PeerProperties[] = [];
   let churnedPeers = 0;
   const joinEvents: PeerJoinEvent[] = []; // Record all peer joins
@@ -1212,6 +1213,8 @@ export async function runFlashCrowdSimulation(
   const joinRate = config.joinRate || 2; // Peers per second for flash crowd
 
   // Create all peers with varied properties
+  // Note: numPeers is the maximum number of peers that can exist at any time.
+  // When peers leave due to churn, they don't rejoin - the system has fewer active peers.
   // Peers are created upfront but may join at different times (flash crowd)
   for (let i = 0; i < config.numPeers; i++) {
     const peerId = `peer-${String(i + 1).padStart(3, '0')}`;
@@ -1233,48 +1236,11 @@ export async function runFlashCrowdSimulation(
 
   // Track churn events
   const churnEvents: number[] = [];
-  const rejoinEvents: PeerJoinEvent[] = [];
   const onChurn = () => {
     churnedPeers++;
     churnEvents.push(Date.now());
   };
 
-  // Function to handle peer rejoining
-  const handlePeerRejoin = async (churnedPeer: { peer: PeerProperties; churnTime: number }) => {
-    const { peer: oldPeer } = churnedPeer;
-    
-    // Create new peer with same properties but reset some stats
-    const newPeer = createPeer(
-      oldPeer.id,
-      peerRegistry.size, // Use current active peer count as index
-      config.numPeers,
-      Date.now(), // New join time
-      config
-    );
-    
-    // Restore some properties from before churn
-    newPeer.bandwidth = oldPeer.bandwidth;
-    newPeer.latency = oldPeer.latency;
-    // Reset request/upload stats for fresh start
-    newPeer.requestCount = 0;
-    newPeer.uploadsServed = 0;
-    newPeer.cacheHits = 0;
-    newPeer.localCacheHits = 0;
-    newPeer.cacheMisses = 0;
-    
-    // If peer had files before, they're lost (simulating cache cleared on disconnect)
-    // But they can re-download from other peers
-    
-    // Add to peers array for tracking
-    peers.push(newPeer);
-    
-    // Record rejoin event
-    await simulatePeerJoin(newPeer, config, rejoinEvents);
-    
-    // Start peer simulation (add to promises so we wait for it)
-    const rejoinPromise = simulatePeer(newPeer, config, fileHash, fileSizeBytes, transferEvents, onChurn);
-    peerPromises.push(rejoinPromise);
-  };
 
   // Start peers (with staggered joins for flash crowd)
   const peerPromises: Promise<void>[] = [];
@@ -1306,47 +1272,8 @@ export async function runFlashCrowdSimulation(
     }
   }
 
-  // Start rejoin monitoring (peers can rejoin after churning)
-  // Only allow rejoins if churn mode allows joining
-  const churnMode = config.churnMode ?? 'mixed';
-  const canJoin = churnMode === 'joining' || churnMode === 'mixed';
-  const rejoinRate = canJoin ? (config.rejoinRate ?? (config.churnRate ? config.churnRate * 0.5 : 0)) : 0;
-  let rejoinCheckInterval: NodeJS.Timeout | null = null;
-  
-  if (canJoin && config.churnRate && rejoinRate > 0) {
-    // Only start rejoin monitoring if churn is enabled and rejoin rate > 0
-    rejoinCheckInterval = setInterval(() => {
-      if (churnedPeersRegistry.size === 0) return;
-      
-      // Check each churned peer for potential rejoin
-      const peersToRejoin: Array<{ peerId: string; data: { peer: PeerProperties; churnTime: number } }> = [];
-      
-      for (const [peerId, churnedData] of churnedPeersRegistry.entries()) {
-        // Only allow rejoin if enough time has passed (at least 2 seconds)
-        const timeSinceChurn = Date.now() - churnedData.churnTime;
-        if (timeSinceChurn >= 2000 && Math.random() < rejoinRate) {
-          peersToRejoin.push({ peerId, data: churnedData });
-        }
-      }
-      
-      // Process rejoins
-      for (const { peerId, data } of peersToRejoin) {
-        // Remove from churned registry before rejoining
-        churnedPeersRegistry.delete(peerId);
-        handlePeerRejoin(data).catch((err) => {
-          console.error(`Error rejoining peer ${peerId}:`, err);
-        });
-      }
-    }, 2000); // Check every 2 seconds to avoid too frequent checks
-  }
-
   // Wait for all peers to complete
   await Promise.all(peerPromises);
-  
-  // Clean up rejoin monitoring
-  if (rejoinCheckInterval) {
-    clearInterval(rejoinCheckInterval);
-  }
   
   const endTime = Date.now();
 
@@ -1741,7 +1668,7 @@ export async function runFlashCrowdSimulation(
     recoverySpeed: recoverySpeed ? Math.round(recoverySpeed * 10) / 10 : undefined,
     peersSimulated: config.numPeers,
     duration: Math.round((endTime - startTime) / 100) / 10,
-    peerJoinEvents: [...joinEvents, ...rejoinEvents].sort((a, b) => a.timestamp - b.timestamp),
+    peerJoinEvents: joinEvents.sort((a, b) => a.timestamp - b.timestamp),
     fileTransferEvents: transferEvents.sort((a, b) => a.timestamp - b.timestamp),
     anchorNodes,
     filePropagationTime,

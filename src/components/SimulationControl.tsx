@@ -62,9 +62,13 @@ interface SimulationResults {
   totalRequests: number;
   peerRequests: number;
   originRequests: number;
-  cacheHitRatio: number;
+  localCacheHits?: number; // requests served from local cache (peer already had file)
+  networkRequests?: number; // peerRequests + originRequests (excludes local cache - for fair comparison)
+  cacheHitRatio: number; // includes local cache
+  networkCacheHitRatio?: number; // peerRequests / networkRequests (P2P effectiveness, excludes local cache)
   bandwidthSaved: number;
-  avgLatency: number;
+  avgLatency: number; // includes all requests
+  networkAvgLatency?: number; // average latency of network requests only (excludes local cache)
   latencyImprovement: number;
   jainFairnessIndex: number;
   recoverySpeed?: number;
@@ -843,7 +847,68 @@ export function SimulationControl() {
                   Both simulations used the same configuration, request patterns, and node joining patterns.
                   The baseline shows what would happen if all requests went directly to the origin server.
                 </Text>
+                <Text size="xs" c="dimmed" mt="xs" fw={500}>
+                  Note: Comparisons focus on network requests only (excludes local cache hits) for fair evaluation.
+                  Both systems benefit equally from local caching, so we compare P2P vs Origin performance on actual network requests.
+                </Text>
               </Alert>
+
+              {/* Network-Only Comparison (Fair Comparison) */}
+              <Divider my="lg" />
+              <Title order={3} mb="md" c="orange">
+                Network Requests Comparison (Fair Comparison)
+              </Title>
+              <Text size="sm" c="dimmed" mb="md">
+                This comparison excludes local cache hits, which both systems benefit from equally.
+                It shows the actual performance difference between P2P and origin-only for requests that need the network.
+              </Text>
+              <SimpleGrid cols={{ base: 1, sm: 2 }} spacing="md" mb="lg">
+                <Paper p="md" withBorder style={{ backgroundColor: '#fff9e6' }}>
+                  <Text size="xs" c="dimmed" mb="xs">
+                    Network Avg Latency
+                  </Text>
+                  <Group gap="xs" align="baseline">
+                    <Text fw={700} size="lg" c="green">
+                      {results.networkAvgLatency?.toFixed(0) ?? results.avgLatency.toFixed(0)}ms
+                    </Text>
+                    <Text size="xs" c="dimmed">vs</Text>
+                    <Text fw={700} size="lg" c="red">
+                      {baselineResults.networkAvgLatency?.toFixed(0) ?? baselineResults.avgLatency.toFixed(0)}ms
+                    </Text>
+                  </Group>
+                  {results.networkAvgLatency && baselineResults.networkAvgLatency && (
+                    <Text size="xs" c="green" mt="xs" fw={500}>
+                      Improvement: {((baselineResults.networkAvgLatency - results.networkAvgLatency) / baselineResults.networkAvgLatency * 100).toFixed(1)}%
+                    </Text>
+                  )}
+                  <Text size="xs" c="dimmed" mt="xs">
+                    Average latency of network requests only
+                  </Text>
+                </Paper>
+
+                <Paper p="md" withBorder style={{ backgroundColor: '#fff9e6' }}>
+                  <Text size="xs" c="dimmed" mb="xs">
+                    Origin Server Load
+                  </Text>
+                  <Group gap="xs" align="baseline">
+                    <Text fw={700} size="lg" c="green">
+                      {results.originRequests}
+                    </Text>
+                    <Text size="xs" c="dimmed">vs</Text>
+                    <Text fw={700} size="lg" c="red">
+                      {baselineResults.originRequests}
+                    </Text>
+                  </Group>
+                  {baselineResults.originRequests > 0 && (
+                    <Text size="xs" c="green" mt="xs" fw={500}>
+                      Reduction: {((baselineResults.originRequests - results.originRequests) / baselineResults.originRequests * 100).toFixed(1)}%
+                    </Text>
+                  )}
+                  <Text size="xs" c="dimmed" mt="xs">
+                    Requests that went to origin server
+                  </Text>
+                </Paper>
+              </SimpleGrid>
 
               {/* Side-by-side Latency Comparison by Node Type */}
               {results.latencyByNodeType && baselineResults.latencyByNodeType && (
@@ -1012,13 +1077,30 @@ export function SimulationControl() {
                 {results.totalRequests}
               </Text>
               <Text size="xs" c="dimmed" mt="xs">
-                Total number of requests made by all peers (includes local cache, P2P, and origin requests).
+                Total number of requests made by all peers.
+              </Text>
+              {(results.localCacheHits !== undefined || (results.totalRequests - results.peerRequests - results.originRequests) > 0) && (
+                <Text size="xs" c="dimmed" mt="xs" fw={500}>
+                  Breakdown: {results.localCacheHits ?? (results.totalRequests - results.peerRequests - results.originRequests)} local cache + {results.peerRequests} P2P + {results.originRequests} origin = {results.totalRequests}
+                </Text>
+              )}
+            </Paper>
+
+            <Paper p="md" withBorder>
+              <Text size="xs" c="dimmed">
+                Local Cache Hits
+              </Text>
+              <Text fw={700} size="xl" c="cyan">
+                {results.localCacheHits ?? (results.totalRequests - results.peerRequests - results.originRequests)}
+              </Text>
+              <Text size="xs" c="dimmed" mt="xs">
+                Requests served from peer's local cache (peer already had the file). No network transfer needed.
               </Text>
             </Paper>
 
             <Paper p="md" withBorder>
               <Text size="xs" c="dimmed">
-                Peer Requests (Hits)
+                Peer Requests (P2P Hits)
               </Text>
               <Text fw={700} size="xl" c="green">
                 {results.peerRequests}

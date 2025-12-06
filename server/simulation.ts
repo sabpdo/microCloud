@@ -104,9 +104,13 @@ export interface SimulationResults {
   totalRequests: number;
   peerRequests: number;
   originRequests: number;
-  cacheHitRatio: number;
+  localCacheHits: number; // requests served from local cache (peer already had file)
+  networkRequests: number; // peerRequests + originRequests (excludes local cache - for fair comparison)
+  cacheHitRatio: number; // includes local cache
+  networkCacheHitRatio: number; // peerRequests / networkRequests (P2P effectiveness, excludes local cache)
   bandwidthSaved: number; // percentage
-  avgLatency: number;
+  avgLatency: number; // includes all requests
+  networkAvgLatency: number; // average latency of network requests only (excludes local cache)
   latencyImprovement: number; // percentage improvement
   jainFairnessIndex: number;
   recoverySpeed?: number; // requests/sec after churn
@@ -1342,8 +1346,22 @@ export async function runFlashCrowdSimulation(
   //   ? (peerRequests / requestsNeedingNetwork) * 100
   //   : 0;
 
-  // Bandwidth saved equals cache hit ratio (peers save that much bandwidth)
-  const bandwidthSaved = cacheHitRatio;
+  // Network requests: requests that actually need network (excludes local cache hits)
+  // This is the fair comparison metric - both baseline and P2P benefit equally from local caching
+  const networkRequests = peerRequests + originRequests;
+  
+  // Network cache hit ratio: P2P effectiveness on network requests only
+  // This shows what percentage of network requests were served by P2P vs origin
+  // Excludes local cache hits which both systems benefit from equally
+  const networkCacheHitRatio = networkRequests > 0
+    ? (peerRequests / networkRequests) * 100
+    : 0;
+  
+  // Bandwidth saved: percentage of requests that would have gone to origin but were served from P2P cache
+  // This represents the actual bandwidth savings from P2P caching (excluding local cache hits)
+  // Formula: (P2P requests) / (P2P requests + origin requests) * 100
+  // This shows how much origin server bandwidth was saved by using P2P
+  const bandwidthSaved = networkCacheHitRatio; // Same as networkCacheHitRatio
 
   // Calculate average latency weighted by request count per peer
   // Per report: "We calculated the difference between the average latency without 
@@ -1374,20 +1392,43 @@ export async function runFlashCrowdSimulation(
     totalRequestsForLatency += peer.requestCount;
   });
 
-  // Overall average latency across all requests
+  // Overall average latency across all requests (includes local cache)
   const avgLatency =
     totalRequestsForLatency > 0
       ? totalLatencyWeighted / totalRequestsForLatency
       : calculateAvgLatency(peers);
+
+  // Network-only average latency: excludes local cache hits for fair comparison
+  // This is the latency of requests that actually used the network (P2P or origin)
+  let networkLatencyWeighted = 0;
+  let networkRequestsForLatency = 0;
+  
+  peers.forEach((peer) => {
+    const p2pCacheLatency = peer.latency * 0.1;
+    const originLatency = peer.latency * 1.5;
+    
+    // Only count network requests (P2P + origin), exclude local cache
+    const networkLatencyForPeer = 
+      (peer.cacheHits * p2pCacheLatency) +
+      (peer.cacheMisses * originLatency);
+    
+    networkLatencyWeighted += networkLatencyForPeer;
+    networkRequestsForLatency += peer.cacheHits + peer.cacheMisses;
+  });
+  
+  const networkAvgLatency = networkRequestsForLatency > 0
+    ? networkLatencyWeighted / networkRequestsForLatency
+    : avgLatency; // Fallback to overall if no network requests
 
   // Calculate latency improvement: compare with all-origin baseline
   // If all requests went to origin server (no caching), what would latency be?
   const avgOriginLatency = peers.reduce((sum, p) => sum + p.latency * 1.5, 0) / Math.max(1, peers.length);
   
   // Latency improvement percentage = how much faster we are vs origin-only
+  // Use network-only latency for fair comparison (excludes local cache which both systems have)
   const latencyImprovement =
-    avgOriginLatency > 0 && totalRequests > 0
-      ? ((avgOriginLatency - avgLatency) / avgOriginLatency) * 100
+    avgOriginLatency > 0 && networkRequestsForLatency > 0
+      ? ((avgOriginLatency - networkAvgLatency) / avgOriginLatency) * 100
       : 0;
 
   // Calculate Jain's fairness index: measures load distribution fairness
@@ -1694,9 +1735,13 @@ export async function runFlashCrowdSimulation(
     totalRequests,
     peerRequests,
     originRequests,
-    cacheHitRatio,
+    localCacheHits: localCacheRequests, // Make it explicit in results
+    networkRequests, // Network requests only (for fair comparison)
+    cacheHitRatio, // Includes local cache
+    networkCacheHitRatio, // P2P effectiveness on network requests only
     bandwidthSaved,
-    avgLatency: Math.round(avgLatency),
+    avgLatency: Math.round(avgLatency), // Includes all requests
+    networkAvgLatency: Math.round(networkAvgLatency), // Network requests only (for fair comparison)
     latencyImprovement: Math.max(0, Math.round(latencyImprovement * 10) / 10),
     jainFairnessIndex: Math.round(jainFairnessIndex * 1000) / 1000,
     recoverySpeed: recoverySpeed ? Math.round(recoverySpeed * 10) / 10 : undefined,

@@ -563,7 +563,7 @@ export function SimulationControl() {
                   const selectedFileInfo = fileInfo.find(info => info.path === config.targetFile);
                   if (selectedFileInfo && selectedFileInfo.chunks > 1) {
                     return (
-                      <Alert color="blue" size="sm">
+                      <Alert color="blue">
                         <Text size="xs">
                           This file will be transferred in <strong>{selectedFileInfo.chunks} chunks</strong> ({selectedFileInfo.chunks > 1 ? 'chunk failures possible' : 'single chunk'})
                         </Text>
@@ -603,7 +603,6 @@ export function SimulationControl() {
             min={0}
             max={1}
             step={0.01}
-            precision={2}
             disabled={running}
           />
 

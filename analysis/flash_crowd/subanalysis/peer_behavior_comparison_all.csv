@@ -1,0 +1,8 @@
+Metric,10 Peers,20 Peers,50 Peers,100 Peers,200 Peers,500 Peers
+Network Avg Latency (ms),96.0,94.0,127.0,107.0,153.0,185.0
+Network Cache Hit Ratio (%),50.0,65.0,42.0,47.47,27.23,5.45
+P2P Efficiency (%),50.0,65.0,42.0,47.47,27.23,5.45
+Origin Requests,5.0,7.0,29.0,52.0,139.0,382.0
+Peer Requests,5.0,13.0,21.0,47.0,52.0,22.0
+Transfer Success Rate (%),0.0,0.0,0.0,0.0,0.0,0.0
+Max Anchor Node Load,0.0,0.0,0.0,0.0,0.0,0.0

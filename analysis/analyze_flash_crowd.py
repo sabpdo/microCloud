@@ -370,7 +370,7 @@ def main():
     parser = argparse.ArgumentParser(description='Analyze flash crowd simulation results')
     parser.add_argument('--results-dir', '-r', default='analysis/flash_crowd',
                         help='Directory containing flash crowd JSON result files (default: analysis/flash_crowd)')
-    parser.add_argument('--output-dir', '-o', default='analysis',
+    parser.add_argument('--output-dir', '-o', default='analysis/flash_crowd',
                         help='Directory to save analysis outputs (default: analysis)')
     args = parser.parse_args()
     

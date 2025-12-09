@@ -100,13 +100,13 @@ export class Peer {
   public getReputation(): number {
     // n_success: number of successful chunk transfers (uploads to other peers)
     const n_success = this.successfulUploads;
-    
+
     // B: bandwidth in Mbps (no normalization per report formula)
     const B = this.bandwidth;
-    
+
     // T: uptime in seconds (current session duration)
     const T = this.uptime;
-    
+
     // Apply weights: a, b, c are tunable scalar weights
     // Default weights are all 1.0 per report
     return (
@@ -308,34 +308,39 @@ export class Peer {
           DEFAULT_TIMEOUT
         );
 
-        if (resource) {
-          // Verify hash: compute hash of received content and compare to requested hash
-          let contentToHash: string | ArrayBuffer | Uint8Array;
-          if (typeof resource.content === 'string') {
-            contentToHash = resource.content;
-          } else {
-            contentToHash = resource.content;
-          }
-          
-          const receivedHash = await sha256(contentToHash);
-          if (receivedHash !== resourceHash) {
-            // Hash mismatch: peer sent wrong content, treat as failure
-            console.warn(
-              `Hash verification failed for ${resourceHash}: received ${receivedHash} from peer ${peerID}`
-            );
-            // Penalize peer for sending incorrect content
-            peerInfo.object.recordFailedTransfer();
-            throw new Error(`Hash verification failed: expected ${resourceHash}, got ${receivedHash}`);
-          }
-
-          // Hash matches: content is correct, proceed to cache
-          this.cache.set(resourceHash, resource);
-          peerInfo.object.recordSuccessfulUpload(); // Reward peer for serving
-          console.log(`Successfully received and verified ${resourceHash} from peer ${peerID}`);
-          return resource;
-        } else {
-          throw new Error('Peer returned null/undefined');
+        if (!resource) {
+          // Peer request failed (returned null) - try next peer
+          console.warn(`Peer ${peerID} failed to return data for ${resourceHash.substring(0, 8)}..., trying next peer`);
+          peerInfo.object.recordFailedTransfer();
+          // Remove this peer from queue and continue to next iteration
+          peerQueue.delete_max();
+          continue;
         }
+
+        // Verify hash: compute hash of received content and compare to requested hash
+        let contentToHash: string | ArrayBuffer | Uint8Array;
+        if (typeof resource.content === 'string') {
+          contentToHash = resource.content;
+        } else {
+          contentToHash = resource.content;
+        }
+
+        const receivedHash = await sha256(contentToHash);
+        if (receivedHash !== resourceHash) {
+          // Hash mismatch: peer sent wrong content, treat as failure
+          console.warn(
+            `Hash verification failed for ${resourceHash}: received ${receivedHash} from peer ${peerID}`
+          );
+          // Penalize peer for sending incorrect content
+          peerInfo.object.recordFailedTransfer();
+          throw new Error(`Hash verification failed: expected ${resourceHash}, got ${receivedHash}`);
+        }
+
+        // Hash matches: content is correct, proceed to cache
+        this.cache.set(resourceHash, resource);
+        peerInfo.object.recordSuccessfulUpload(); // Reward peer for serving
+        console.log(`Successfully received and verified ${resourceHash} from peer ${peerID}`);
+        return resource;
       } catch (error) {
         // Request failed - try next peer
         console.error(`Attempt ${attempt + 1} failed:`, error);

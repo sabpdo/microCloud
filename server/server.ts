@@ -284,7 +284,7 @@ app.get('/api/files', (req: Request, res: Response) => {
   try {
     const files: Array<{ path: string; size: number; chunks: number }> = [];
     const CHUNK_SIZE = 16 * 1024; // 16KB chunks
-    
+
     // Check all .txt and .json files in public directory
     if (fs.existsSync(STATIC_DIR)) {
       const fileList = fs.readdirSync(STATIC_DIR);

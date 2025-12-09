@@ -644,7 +644,7 @@ export function SimulationControl() {
                 value={config.joinRate}
                 onChange={(value) => setConfig({ ...config, joinRate: Number(value) || 2 })}
                 min={0.1}
-                max={200}
+                max={config.numPeers}
                 step={0.1}
                 disabled={running}
               />

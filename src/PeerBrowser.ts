@@ -162,13 +162,13 @@ export class PeerBrowser {
   public getReputation(): number {
     // n_success: number of successful chunk transfers (uploads to other peers)
     const n_success = this.successfulUploads;
-    
+
     // B: bandwidth in Mbps (no normalization per report formula)
     const B = this.bandwidth;
-    
+
     // T: uptime in seconds (current session duration)
     const T = this.uptime;
-    
+
     // Apply weights: a, b, c are tunable scalar weights
     // Default weights are all 1.0 per report
     return (
@@ -235,10 +235,10 @@ export class PeerBrowser {
 
   public addPeer(peer: PeerBrowser): void {
     const newPeerInfo: PeerInfo = peer.getPeerInfo();
-    
+
     // Get old peer info to clean up stale chunk index entries
     const oldPeerInfo = this.peerIndex.get(peer.peerID);
-    
+
     // Remove this peer from all chunk index entries (in case their cache changed)
     if (oldPeerInfo) {
       for (const resource of oldPeerInfo.cacheManifest.resources) {
@@ -247,7 +247,7 @@ export class PeerBrowser {
         }
       }
     }
-    
+
     // Update peer index
     this.peerIndex.set(peer.peerID, newPeerInfo);
 
@@ -373,43 +373,54 @@ export class PeerBrowser {
           DEFAULT_TIMEOUT
         );
 
-        if (arrayBuffer) {
-          // Verify hash: compute hash of received content and compare to requested hash
-          const receivedHash = await sha256(arrayBuffer);
-          if (receivedHash !== resourceHash) {
-            // Hash mismatch: peer sent wrong content, treat as failure
-            console.warn(
-              `Hash verification failed for ${resourceHash}: received ${receivedHash} from peer ${peerID}`
-            );
-            // Penalize peer for sending incorrect content
-            if (peerInfo) {
-              this.recordFailedTransfer();
-            }
-            throw new Error(`Hash verification failed: expected ${resourceHash}, got ${receivedHash}`);
+        if (!arrayBuffer) {
+          // Peer request failed (returned null) - try next peer
+          console.warn(`Peer ${peerID} failed to return data for ${resourceHash.substring(0, 8)}..., trying next peer`);
+          if (peerInfo) {
+            this.recordFailedTransfer();
           }
-
-          // Hash matches: content is correct, proceed to cache
-          // Get MIME type from manifest or infer
-          const manifestEntry = peerInfo.cacheManifest.resources.find(
-            (r) => r.resourceHash === resourceHash
-          );
-          const mimeType = manifestEntry?.mimeType || 'application/octet-stream';
-
-          const resource: CachedResource = {
-            content: arrayBuffer,
-            mimeType,
-            timestamp: Math.floor(Date.now() / 1000),
-          };
-
-          this.cache.set(resourceHash, resource);
-          console.log(`Successfully received and verified ${resourceHash} from peer ${peerID} via WebRTC`);
-          return resource;
-        } else {
-          throw new Error('Peer returned null/undefined');
+          // Remove this peer from queue and continue to next iteration
+          peerQueue.delete_max();
+          continue;
         }
+
+        // Verify hash: compute hash of received content and compare to requested hash
+        const receivedHash = await sha256(arrayBuffer);
+        if (receivedHash !== resourceHash) {
+          // Hash mismatch: peer sent wrong content, treat as failure
+          console.warn(
+            `Hash verification failed for ${resourceHash}: received ${receivedHash} from peer ${peerID}`
+          );
+          // Penalize peer for sending incorrect content
+          if (peerInfo) {
+            this.recordFailedTransfer();
+          }
+          throw new Error(`Hash verification failed: expected ${resourceHash}, got ${receivedHash}`);
+        }
+
+        // Hash matches: content is correct, proceed to cache
+        // Get MIME type from manifest or infer
+        const manifestEntry = peerInfo.cacheManifest.resources.find(
+          (r) => r.resourceHash === resourceHash
+        );
+        const mimeType = manifestEntry?.mimeType || 'application/octet-stream';
+
+        const resource: CachedResource = {
+          content: arrayBuffer,
+          mimeType,
+          timestamp: Math.floor(Date.now() / 1000),
+        };
+
+        this.cache.set(resourceHash, resource);
+        console.log(`Successfully received and verified ${resourceHash} from peer ${peerID} via WebRTC`);
+        return resource;
       } catch (error) {
         console.error(`Attempt ${attempt + 1} failed:`, error);
-        const peerQueue = this.chunkIndex.get(resourceHash)!;
+        const peerQueue = this.chunkIndex.get(resourceHash);
+        if (!peerQueue || peerQueue.getSize() === 0) {
+          // No peers left in the queue, break early and let fallback happen
+          break;
+        }
         const peerID = peerQueue.get_max();
         const peerInfo = this.peerIndex.get(peerID);
         if (peerInfo) {

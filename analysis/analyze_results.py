@@ -12,6 +12,8 @@ Generates tables and bar charts comparing:
 import json
 import os
 import glob
+import sys
+import argparse
 from pathlib import Path
 from typing import Dict, List, Any, Optional
 import matplotlib.pyplot as plt
@@ -42,11 +44,12 @@ SCENARIO_COLORS = {
 }
 
 def load_results(results_dir: str = 'results') -> List[Dict[str, Any]]:
-    """Load all experiment results from JSON files."""
+    """Load all experiment results from JSON files (searches recursively)."""
     results = []
-    pattern = os.path.join(results_dir, '*.json')
+    # Search recursively in subdirectories
+    pattern = os.path.join(results_dir, '**', '*.json')
     
-    for filepath in glob.glob(pattern):
+    for filepath in glob.glob(pattern, recursive=True):
         if os.path.basename(filepath) == 'experiments_summary.json':
             continue
         
@@ -480,13 +483,20 @@ def create_scalability_latency_over_time(results: List[Dict[str, Any]], output_d
 
 def main():
     """Main analysis function."""
+    parser = argparse.ArgumentParser(description='Analyze simulation experiment results')
+    parser.add_argument('--results-dir', '-r', default='results',
+                        help='Directory containing JSON result files (default: results)')
+    parser.add_argument('--output-dir', '-o', default='analysis',
+                        help='Directory to save analysis outputs (default: analysis)')
+    args = parser.parse_args()
+    
     print("=" * 60)
     print("Simulation Results Analysis")
     print("=" * 60)
     print()
     
-    results_dir = 'results'
-    output_dir = 'analysis'
+    results_dir = args.results_dir
+    output_dir = args.output_dir
     
     if not os.path.exists(results_dir):
         print(f"Error: Results directory '{results_dir}' not found!")

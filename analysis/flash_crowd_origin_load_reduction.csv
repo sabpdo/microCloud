@@ -1,0 +1,7 @@
+Num Peers,Baseline Origin Requests,P2P Origin Requests,Load Reduction,Load Reduction (%),Bandwidth Saved (%)
+10,10,6,4,40.0,40.0
+20,20,7,13,65.0,65.0
+50,50,29,21,42.0,42.0
+100,100,53,47,47.0,44.21
+200,200,98,102,51.0,42.35
+500,500,275,225,45.0,18.15

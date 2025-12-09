@@ -1,9 +1,1 @@
-Scenario,Churn Rate,Num Peers,Network Requests,Network Avg Latency (ms),Network Cache Hit Ratio (%),Origin Requests,Jain's Index
-Baseline,0.0,200,200,13,0.0,200,0.0
-Baseline,0.0,50,50,13,0.0,50,0.0
-Baseline,0.0,20,20,13,0.0,20,0.0
-Baseline,0.0,100,100,13,0.0,100,0.0
-High Churn,0.1,100,86,22,56.97674418604651,37,0.014
-High Churn,0.01,100,98,12,33.6734693877551,65,0.011
-High Churn,0.05,100,89,17,52.80898876404494,42,0.02
-High Churn,0.0,100,100,10,48.0,52,0.012
+

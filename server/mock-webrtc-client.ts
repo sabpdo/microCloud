@@ -19,14 +19,14 @@ export type MicroCloudClientOptions = {
 export type PeerMessage =
   | { type: 'file-request'; resourceHash: string; requestId: string }
   | {
-      type: 'file-response';
-      requestId: string;
-      resourceHash: string;
-      success: boolean;
-      mimeType?: string;
-      totalChunks?: number;
-      contentLength?: number;
-    }
+    type: 'file-response';
+    requestId: string;
+    resourceHash: string;
+    success: boolean;
+    mimeType?: string;
+    totalChunks?: number;
+    contentLength?: number;
+  }
   | { type: 'file-chunk'; requestId: string; chunkIndex: number; totalChunks: number; data: string }
   | { type: 'file-complete'; requestId: string; resourceHash: string }
   | { type: 'manifest-request' }
@@ -77,11 +77,11 @@ export class MockMicroCloudClient {
     bandwidth?: number
   ) {
     this.peerId = peerId;
-    this.onOpen = options.onOpen || (() => {});
-    this.onClose = options.onClose || (() => {});
-    this.log = options.onLog || (() => {});
-    this.onFileRequest = options.onFileRequest || (() => {});
-    this.onManifestRequest = options.onManifestRequest || (() => {});
+    this.onOpen = options.onOpen || (() => { });
+    this.onClose = options.onClose || (() => { });
+    this.log = options.onLog || (() => { });
+    this.onFileRequest = options.onFileRequest || (() => { });
+    this.onManifestRequest = options.onManifestRequest || (() => { });
 
     if (latency !== undefined) this.latency = latency;
     if (bandwidth !== undefined) this.bandwidth = bandwidth;
@@ -219,7 +219,7 @@ export class MockMicroCloudClient {
       // Send chunks with simulated bandwidth delay
       // For multi-chunk files, simulate potential partial transfer failures
       const partialFailureRate = totalChunks > 1 ? 0.05 : 0; // 5% chance of failure for multi-chunk files
-      
+
       for (let i = 0; i < totalChunks; i++) {
         await this.delay(chunkDelay + this.latency);
 
@@ -343,7 +343,7 @@ export class MockMicroCloudClient {
         const receiveDelayFactor = referenceBandwidth / Math.max(this.bandwidth, 1);
         const baseReceiveDelay = 2; // Base processing delay in ms
         const receiveDelay = baseReceiveDelay * receiveDelayFactor;
-        
+
         // Simulate processing delay before handling the chunk
         // This is done asynchronously to not block the message handler
         setTimeout(() => {

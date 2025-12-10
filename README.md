@@ -4,6 +4,8 @@
 
 µCloud turns nearby devices into a lightweight micro-cloud. Peers exchange content over WebRTC DataChannels, report cache hits/misses to the origin, and fall back to the server when needed. A React dashboard configures policies, monitors metrics, and drives flash-crowd simulations.
 
+Read the [final report](https://drive.google.com/file/d/1bMaonPq6EDMiZ7aZK7_sXu4vuIpkjfP8/view?usp=sharing).
+
 ## Highlights
 
 - Client-layer P2P cache: browser peers fetch from each other before hitting origin.
